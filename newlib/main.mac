@@ -3,8 +3,6 @@
 [WARNING error=label-orphan]
 ;[WARNING -user]
 
-%unmacro elf 0-1
-%defalias elf elf2
 %ifenv %!DEBUG
 	;%warning DEBUG ON
 	%defstr DEBUG %!DEBUG
@@ -71,7 +69,7 @@
 	%endif
 %endmacro
 
-%macro elf2 0-1
+%macro elf 0-1
 	%ifidn %1,simple
 		init
 		ELF_PHDR 1
