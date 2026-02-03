@@ -1,0 +1,156 @@
+; helpers for creating easily useable functions
+
+; input registers which will break the function
+%macro prohibit arg(2-*)
+	%define %%in %1
+	%rotate 1
+
+	%warning IN %%in
+
+	%rep %0 - 1
+		%warning PARAM %1
+		%ifidn %%in,%1
+			%fatal %? forbidden param %1
+		%endif
+	%rotate 1
+	%endrep
+
+%endmacro
+
+; registers which will be clobbered
+; atm just for documentation purposes, actual function is a nop
+%macro clobber arg(1-*)
+%endmacro
+
+; register which will be clobbered AND have the return value of the function
+%macro return_reg arg(1)
+	;%warning MOEP
+	%xdefine return_reg_val %1
+%endmacro
+
+;%macro token_info 1-*
+%macro token_info 1+.nolist
+	; FAILED ASSERTION:
+	;%deftok %%in %strcat(%{1:%0})
+	;%warning %?: %0 parameters %%in
+	%define %%id ""
+
+	;%ifidn %1,%1
+	;	%warning samesies
+	;%else
+	;	%warning DIFFERENT %1
+	;%endif
+	%if 1
+		%ifnum %1
+			%strcat %%id %%id, "N"
+		%else
+			%strcat %%id %%id, "."
+		%endif
+
+		%ifstr %1
+			%strcat %%id %%id, "S"
+		%else
+			%strcat %%id %%id, "."
+		%endif
+
+		%iftoken %1
+			%strcat %%id %%id, "T"
+		%else
+			%strcat %%id %%id, "."
+		%endif
+
+		%ifid %1
+			%strcat %%id %%id, "I"
+		%else
+			%strcat %%id %%id, "."
+		%endif
+
+		%ifempty %1
+			%strcat %%id %%id, "E"
+		%else
+			%strcat %%id %%id, "."
+		%endif
+		%ifnidn %1,%1
+			%strcat %%id %%id, "D"
+		%else
+			%strcat %%id %%id, "."
+		%endif
+	%endif
+
+	; num str token id empty
+	; 1   2   3     4  5
+
+	;%warning %?: %0 parameters %%id
+
+	%defstr %%n %1
+	%ifnum %1
+		%warning %?: %%n %eval(%1) is number %%id
+	%elifstr %1
+		%warning %?: %%n %eval(%1) is str/true %%id
+	%elifempty %1
+		%warning %?: %%n is empty %%id
+	%eliftoken %1
+		%ifid %1
+			%warning %?: %%n is token %%id
+		%else
+			%warning %?: %%n is token/notid %%id
+		%endif
+	%elifid %1
+		%warning %?: %%n is id %%id
+	%else
+		%warning %?: %%n is UNKNOWN %%id
+	%endif
+
+
+%endmacro
+
+%macro istoken arg(1)
+%endmacro
+
+; assign return value to register
+; eg "let ecx, getpid" -> store result of getpid in ecx
+%macro let arg(2+)
+	token_info %1
+	token_info %2
+
+	%undef return_reg_val
+	%xdefine return_reg_hint %1
+	%2
+	%ifndef return_reg_val
+		%error %?: %2: not a function that returns a value
+	%endif
+	%undef return_reg_hint
+	; TODO: very simplistic. needs macro to really check
+	%if %strlen(%1) > 3
+		mov	[%1], return_reg_val
+	%else
+		ychg	%1, return_reg_val
+	%endif
+%endmacro
+
+%macro _~ arg(1)
+	%ifid %1
+		%iftoken %1 
+			%warning %?: AMBIGUOUS INPUT: %1
+			let %00, %1
+		%else
+			let %00, %1
+		%endif
+	%else
+		set %00, %1
+	%endif
+%endmacro
+
+%macro OLD_~ arg(1)
+	%if %isid(%1) && !%istoken(%1)
+		let %00, %1
+	%else
+		set %00, %1
+	%endif
+%endmacro
+
+%macro _~ arg(2+)
+	let %00, %1, %2
+%endmacro
+
+

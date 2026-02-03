@@ -1,0 +1,696 @@
+%ifndef stack_cleanup
+%define stack_cleanup 1
+%endif
+
+%define DEBUG_STRING_REGISTER mm7
+
+%imacro puts arg(2)
+	%ifdef PRINTF_FD
+		write	PRINTF_FD, %1, %2
+	%else
+		write	STDOUT,    %1, %2
+	%endif
+%endmacro
+
+%imacro OLDstrlen arg(1)
+%%strlen:
+	set	edi, %1
+	set	eax,  0
+	set	ecx, -1
+
+	repne	scasb
+	inc	ecx
+	not	ecx
+
+	taint	ecx, edi
+%endmacro
+
+%imacro blankstring arg(1)
+	set	edi, %1
+	push	edi
+
+	strlen1	edi
+	pop	edi
+	rep	stosb
+
+	rset	ecx, 0
+	taint	edi
+%endmacro
+
+%imacro strlen1 arg(1)
+%%strlen1:
+	set	edi, %1
+	set	eax,  0
+	set	ecx, -1
+
+	repne	scasb
+	not	ecx
+
+	taint	ecx, edi
+%endmacro
+
+%macro strlen_static arg(2-3)
+	set	%2, %strlen(%1)
+	%ifnempty %3
+		staticstring %3, %1
+	%endif
+%endmacro
+
+; TAINTS: eax, ecx, edi
+%macro strlen_dynamic arg(2-3)
+
+	%ifidn %1,"pop"
+		%ifempty %3
+			pop	edi
+		%else
+			pop	edi
+			push	edi
+			;xchg	edi, [esp]
+		%endif
+
+	%else
+		set	edi, %1
+		%ifnempty %3
+			push	edi
+		%endif
+	%endif
+
+	set	eax,  0
+	set	ecx, -1
+
+	repne	scasb
+	not	ecx
+	ELF_PHDR 1
+
+	%if %isidn(%2,ecx)
+		dec	ecx
+	%else
+		lea	%2, [ecx-1]
+	%endif
+
+	%ifnempty %3
+		pop	%3
+	%endif
+	%if %isnidn(%3,edi)
+		taint edi
+	%endif
+	taint	ecx, %2
+%endmacro
+
+
+%macro strlen_dynamic2 arg(0)
+
+;	strlen	%1,  sc_arg3, sc_arg2
+;	strlen	%1,  %2,      %3
+;	strlen	eax, edx,     ecx
+
+	set	edx, eax
+	ychg	ecx, eax
+	
+	; mask first inc
+	%%mask:
+	db	0xa8
+	%%loop:
+		inc	edx
+		taint	edx
+		cmp	byte [edx], 0
+	jne	%%loop
+
+	sub	edx, ecx
+
+%endmacro
+
+%macro strlen_dynamic3 arg(0)
+	set	ecx, edx
+	
+	%%mask:
+	db	0xa8
+	%%loop:
+		inc	edx
+		taint	edx
+		cmp	byte [edx], 0
+	jne	%%loop
+
+	sub	edx, ecx
+%endmacro
+
+; %1: input string pointer
+; %2: string length
+; %3: output string pointer
+%macro strlen arg(2-3) ecx
+	%warning STRLEN %1 %2 %3
+	%if %isstr(%1)
+		strlen_static %1, %2, %3
+	%elif %isidn(%1,eax) && %isidn(%2,edx) %isidn(%3,ecx)
+		strlen_dynamic2
+	%elif %isidn(%1,edx) && %isidn(%2,edx) %isidn(%3,ecx)
+		strlen_dynamic3
+	%else
+		strlen_dynamic %1, %2, %3
+	%endif
+%endmacro
+%defalias strlen_new strlen
+
+%macro strlen arg(1)
+	%ifdef return_reg_hint
+		strlen %1, return_reg_hint
+		return_reg return_reg_hint
+	%else
+		strlen %1,
+	%endif
+%endmacro
+
+%imacro puts arg(1)
+	strlen	%1, sc_arg3, sc_arg2
+	puts	sc_arg2, sc_arg3
+%endmacro
+
+%imacro puts3 arg(1+)
+	puts %strcat(%1,`\n`)
+%endmacro
+
+%imacro print arg(1+)
+	puts %1
+%endmacro
+
+; clobbers:
+; eax, ebx, ecx, edx, edi
+%imacro OLDputs arg(1)
+%%puts:
+	set	edi, %1
+	set	eax,  0
+	set	ecx, -1
+	push	edi
+	repne	scasb
+	;rset	eax, 0
+
+	lea	sc_arg3, [ecx+1]
+	;lea	ecx, [edi+edx] ; rematerialize %1
+	not	sc_arg3
+
+	pop	sc_arg2
+	taint	sc_arg2, sc_arg3, edi
+	puts	sc_arg2, sc_arg3
+%%endputs:
+; ebx = 1
+; ecx = %1
+; edx = strlen
+; edi = pointer to end of string
+%endmacro
+
+%imacro exitafterputs arg(0)
+	xchg    eax, ebx
+	sub     ebx, edx
+	sc_exec
+%endmacro
+
+%imacro putsexit arg(1)
+	puts	%1
+	exitafterputs
+%endmacro
+
+%imacro putsexit arg(2)
+	puts	%1, %2
+	exitafterputs
+%endmacro
+
+%imacro envp arg(1)
+	%if 0
+		pop     %1
+		push    %1
+		lea     %1, [esp+4*%1+8]
+	%else
+		pop	%1
+		push	%1
+		lea	%1, [esp+4*%1+8]
+		taint	%1
+	%endif
+%endmacro
+
+%macro inline_str2 arg(1+)
+	%define rwstr %strcat(%1)
+	%strlen rwlen rwstr
+	%assign rw4 (rwlen+3)/4
+	%assign rwlen2 rw4*4
+
+	%warning STRING rwstr rwlen rwlen2 rw4
+
+	%assign i rwlen2
+	%rep rw4
+		push %substr(rwstr, i-3, 4)
+		%warning S %substr(rwstr, i-3, 4)
+
+		%assign i i-4
+	%endrep
+%endmacro
+
+%imacro inline_str arg(1+)
+	call	%%endstr
+	%%str:
+	db	%1
+	%%endstr:
+%endmacro
+
+;
+; datastring:	32-bit offset
+; stackstring:	esp
+; piestring:	[esp]
+; 
+%macro stosstring arg(1+)
+	%define rwstr %strcat(%1)
+	%strlen rwlen rwstr
+	%assign rw4 rwlen/4
+
+	%assign i 1
+	%rep rw4
+		set	eax,  %substr(rwstr, i, 4)
+		stosd
+		%assign i i+4
+	%endrep
+%endmacro
+
+
+%macro stackstring_raw arg(1+)
+	%define rwstr %strcat(%1)
+	%strlen rwlen rwstr
+	%assign rw4 (rwlen+3)/4
+
+	%assign i rw4*4
+	%rep rw4
+		rpush %substr(rwstr, i-3, 4)
+		%assign i i-4
+	%endrep
+%endmacro
+
+%macro nullfreestring arg(2+)
+	%strlen rwlen %2
+	%assign mod 4 - ( rwlen % 4 )
+	%warning FOO mod
+	%if mod == 1 || mod == 2
+		%strcat rwstr %strcat(%2,%substr(`\x01\x01\x01`,1,mod))
+	%else
+		%strcat rwstr %strcat(%2)
+	%endif
+	stackstring %1, rwstr
+%endmacro
+
+%macro stackstring arg(2)
+	stackstring_raw %2
+	set	%1, esp
+%endmacro
+
+%imacro piestring_raw arg(1+)
+	call	%%endstr
+	%%str:
+	db	%1
+	%%endstr:
+%endmacro
+
+%macro piestring arg(2)
+	piestring_raw %2
+	pop	%1
+	taint	%1
+%endmacro
+
+%macro rodatastring_ref arg(2+)
+	[section .rodata align=1]
+	%1: db %2
+	__?SECT?__
+%endmacro
+
+%macro datastring_ref arg(2+)
+	[section .data align=1]
+	%1: db %2
+	__?SECT?__
+%endmacro
+
+;%macro bssstring_ref arg(2)
+%macro var arg(2)
+	[section .bss align=1]
+	%1: resb %2
+	__?SECT?__
+%endmacro
+
+%macro rodatastring arg(2)
+	[section .rodata align=1]
+	%%str: db %2
+	__?SECT?__
+	set	%1, %%str
+%endmacro
+
+%macro datastring arg(2)
+	[section .data]
+	%%str: db %2
+	__?SECT?__
+	;%define %1 %%str
+	set	%1, %%str
+%endmacro
+
+%macro staticstring arg(2)
+	%if %strlen(%2) <= 5 && !stack_cleanup
+		stackstring	%1, %2
+		;datastring	%1, %2
+		;piestring	%1, %2
+	%elifdef PIE
+		piestring	%1, %2
+	%else
+		rodatastring	%1, %2
+	%endif
+	;datastring	%1, %2
+	;piestring	%1, %2
+%endmacro
+
+%macro string arg(2)
+	%if %isstr(%2)
+		staticstring %1, %2
+	%else
+		set %1, %2
+	%endif
+%endmacro
+
+%macro string0 arg(2+)
+	%if %isstr(%2)
+		staticstring %1, %strcat(%2,`\0`)
+	%else
+		%error "can't add zero on dynamic string"
+	%endif
+%endmacro
+
+%macro cstring_ref arg(1)
+	%if %isstr(%2)
+		%if %strlen(%2) <= 5 && !stack_cleanup
+			stackstring_raw	%strcat(%2,`\0`)
+			esp
+		%else
+			rodatastring_ref %%ref, %strcat(%2,`\0`)
+		%endif
+	%else
+		%error "can't add zero on dynamic string"
+	%endif
+	%%ref
+%endmacro
+
+%macro stringnl arg(2+)
+	%if %isstr(%2)
+		staticstring %1, %strcat(%2,`\n`)
+	%else
+		%fatal "can't add newline on dynamic string"
+	%endif
+%endmacro
+
+;%macro str0 arg(1+)
+;	%define rw0 %strcat(%1,`\0`)
+;	inline_str2 rw0
+;%endmacro
+;
+;%macro strmacro arg(1)
+;	%if %isstr(%1)
+;		str0 %1
+;	%else
+;		%1
+;	%endif
+;%endmacro
+
+%imacro OLDprintstrsafe arg(1)
+	pusha
+	printstr %1
+	popa
+%endmacro
+
+%imacro dbg arg(2)
+	reg_push
+	pusha
+	;rtaint
+	puts	%1, %2
+	popa
+	reg_pop
+%endmacro
+
+%imacro dbg arg(1)
+	reg_push
+	rtaint
+	%if 0
+		movd	mm0, eax
+		movd	mm1, ebx
+		movd	mm2, ecx
+		movd	mm3, edx
+	%else
+		pusha
+	%endif
+	rodatastring	sc_arg2, %1	
+	puts		x, %strlen(%1)
+	%if 0
+		movd	eax, mm0
+		movd	ebx, mm1
+		movd	ecx, mm2
+		movd	edx, mm3
+	%else
+		popa
+	%endif
+	reg_pop
+%endmacro
+
+%imacro printstr arg(1)
+	;pusha
+	;%strcat string %1, `\n`
+	%strcat %%string %1
+	%strlen %%pr_strlen %%string
+	%if %%pr_strlen < 5
+		push	%%string
+		puts	esp, %%pr_strlen
+		%if stack_cleanup
+			pop	ecx
+		%endif
+	%else
+		inline_str %%string
+		;%assign printstr_old reg_keepflags
+		;%assign reg_keepflags 1
+		taint	ecx
+		puts	pop, %%pr_strlen
+		;%assign reg_keepflags printstr_old
+		;popa
+	%endif
+
+%endmacro
+
+%imacro ddprint arg(1)
+	pusha
+	pushf
+	printstr %1
+	popf
+	popa
+%endmacro
+
+%macro cpuidstuff arg(0)
+	%if 0
+		;set edi, 0x80000000
+		set edi, 0
+
+		doloop 64
+			push ecx
+			mov eax, ecx
+			add eax, edi
+			mov ebp, ecx
+			add ebp, edi
+
+			;call regdump
+			cpuid
+			call regdump
+			pop ecx
+		endloop
+		mov eax, edi
+		set ebx,12
+		set edx,12
+		cpuid
+		call regdump
+		exit
+	%endif
+%endmacro
+
+%define zerostring 0
+%define printstatic_used 0
+
+%macro printstatic arg(1)
+	%assign printstatic_used printstatic_used+1
+	%if zerostring
+	%strcat string %1, `\0`
+	%else
+	%strcat string %1
+	%endif
+
+	%strlen pr_strlen string
+	call printstatic_func
+	%if zerostring == 0
+	db pr_strlen
+	%endif
+	db string
+	%%endstring:
+%endmacro
+
+; stack:
+; -strlen
+; -return address
+; -flags
+; -registers
+%macro import_printstatic 0
+%warning PRINTSTATIC USED printstatic_used
+printstatic_func:
+%if printstatic_used > 0
+	%if DEBUG
+		times 8 db 0x90
+	%endif
+	pushf
+	pusha
+	rtaint
+
+	;%defalias set setfz
+	%if zerostring == 0
+		; zero: eax, ebx, edx
+		; clobbered: eax,ebx,ecx,edx
+		zero	eax, ebx, ecx, edx
+
+		mov     ecx, 4*9[esp] 
+		;lea	ebx, 4*9[esp] 
+		;add	esp, 4*9
+		;mov     ecx, [esp] 
+		;exit
+		mov     dl, [ecx]
+		inc	ecx
+		;call	regdump
+		puts	ecx, edx
+
+		add     ecx, edx
+		mov     4*9[esp], ecx
+
+		;mov     [esp], edx
+		;sub	esp, 4*9
+		;call	regdump
+		;%undefalias set
+		;exit
+		;db 0xA3, 1, 2, 3, 4, 5, 6
+	%elif 0
+		; zero: eax, ebx, edx
+		zero	eax, ebx, ecx, edx
+
+		lea	esi, 4*9[esp]
+		;push	4*9
+		;pop	esi
+		;add	esi, esp
+		;call	regdump
+		;exit
+
+		mov	edi, [esi]
+		;mov	edi, 4*9[esp]
+		mov	ecx, edi
+		db	0xA8
+		.l:
+		inc	edx
+		scasb
+		jnz	.l
+		puts	ecx, edx
+		;call	regdump
+		;mov	4*9[esp], edi
+		mov	[esi], edi
+
+	%else
+		; zero: eax, ebx, ecx, edx
+		zero	eax, ebx, ecx, edx
+
+		mov	edi, 4*9[esp]
+		push	edi
+		;mov	esi, edi
+		dec	ecx
+		repne	scasb
+		;call	regdump
+
+		sub	edx, ecx
+		dec	edx
+		dec	edx
+
+		;lea	edx, [ecx+5]
+		;call regdump
+		pop	ecx
+
+		puts	ecx, edx
+		mov	4*9[esp], edi
+
+	%endif
+	;%undefalias set
+	popa
+	popf
+	ret
+	
+%endif
+%endmacro
+
+%imacro dprint arg(1)
+	%if DEBUG
+		%defstr line __LINE__
+		%strcat string "DBG ", __FILE__, ":", line, ": ", %1, `\n`
+		pusha
+		pushf
+		printstr string
+		popf
+		popa
+	%endif
+%endmacro
+
+
+%macro dbgstring arg(1)
+	[section .rodata align=1]
+	%%str: db %strcat(`\n`,%1), 0
+	%%pos: dd %%str + 1
+	;%%end:
+	__?SECT?__
+	movd	DEBUG_STRING_REGISTER, [%%pos]
+%endmacro
+
+%macro get_debug_string arg(1)
+	movd	%1, DEBUG_STRING_REGISTER
+	taint	%1
+	pxor	DEBUG_STRING_REGISTER, DEBUG_STRING_REGISTER
+%endmacro
+
+%macro print_debug_string arg(0)
+	get_debug_string edi
+	dec	edi
+	js	%%skip
+	strlen	edi, sc_arg3, sc_arg2
+	write	STDERR, sc_arg2, sc_arg3
+	%%skip:
+%endmacro
+
+%macro saveregisters arg(0)
+	vmovdqu	ymm6, [esp-32]
+	pusha
+	vmovdqu	ymm5, [esp]
+	%if 0
+		vmovdqu	[esp], ymm6
+		add	esp, 32
+	%else
+		popa
+		vmovdqu	[esp-32], ymm6
+	%endif
+%endmacro
+
+%macro restoreregisters arg(0)
+	vmovdqu	ymm6, [esp-32]
+	pusha
+	vmovdqu	[esp], ymm5
+	popa
+	vmovdqu	[esp-32], ymm6
+
+%endmacro
+
+; base64:	6 bit stored in 8 bits
+; this thing:	32 bit stored into 48 bit
+;		5.33 bit in 8 bits
+
+%macro input 0
+	printstr "Press enter to continue"
+	push0
+	read	0, esp, 1
+	pop	ecx
+	taint	ecx
+%endmacro
+

@@ -1,0 +1,113 @@
+%imacro alloca2 1
+	set	ecx, (%1+3)/4
+	%%alloca:
+		push0
+		loop %%alloca
+	rset	ecx, 0
+%endmacro
+
+%imacro alloca arg(1)
+	%if %1 <= 128
+		add	esp, -%1
+	%elif %1 <= 0xFFFF
+		enter	%1-4, 0
+		;pop	ebp
+		;rset	ebp, 0
+		taint	ebp
+	%else
+		sub	esp, %1
+		;lea	esp, [esp-%1]
+	%endif
+%endmacro
+
+%imacro memset arg(3)
+	set	edi, %1
+	set	eax, %2
+	set	ecx, %3
+	rep	stosb
+	rset	ecx, 0
+	taint	edi
+	;out:
+	; edi: %1 + %2
+	; ecx: 0
+	; eax: %3/0
+%endmacro
+
+%imacro memsetd arg(3)
+	set	edi, %1
+	set	eax, %2
+	set	ecx, %3
+	rep	stosd
+	rset	ecx, 0
+	taint	edi
+%endmacro
+
+%imacro memcpy arg(3)
+	set	edi, %1
+	set	esi, %2
+	set	ecx, %3
+	ELF_PHDR 1
+	;mov	ecx, %3
+	rep	movsb
+	rset	ecx, 0
+	taint	edi, esi
+	;out:
+	; edi: %1 + %3
+	; esi: %2 + %3
+	; ecx: 0
+%endmacro
+
+%imacro memcpy_crit arg(3)
+	mov	edi, %1
+	mov	esi, %2
+	mov	ecx, %3
+	rep	movsb
+	rset	ecx, 0
+	taint	edi, esi
+	;out:
+	; edi: %1 + %3
+	; esi: %2 + %3
+	; ecx: 0
+%endmacro
+
+%macro doloop arg(1-2)
+	%ifid %2,push
+		push ecx
+		%push looppush
+	%else
+		%push loop
+	%endif
+
+	%if %1 == 0
+		%fatal 0-time loops not supported
+	%elif %1 == 1
+		%define %$single 1
+	%else
+		%define %$single 0
+	%endif
+
+	set	ecx, %1
+	taint	ecx	; ecx changes in the following block with each iteration
+	%$loop:
+%endmacro
+
+%macro endloop arg(0)
+	%if %$single
+		dec	ecx
+	%else
+		loop %$loop
+	%endif
+
+	%ifctx looppush
+		pop ecx
+		%pop looppush
+	%else
+		%pop loop
+		rset	ecx, 0
+	%endif
+%endmacro
+
+%macro stos 1
+	set eax, %1
+	stosb
+%endmacro

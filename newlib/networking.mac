@@ -1,0 +1,256 @@
+%define AF_INET			2
+%define AF_INET6		10
+%define SOCK_DGRAM		2
+%define SOCK_STREAM		1
+%define IPPROTO_IP		0
+%define SOL_SOCKET		1
+%define SO_REUSEADDR		2
+%define SO_REUSEPORT		15
+%define SO_RCVTIMEO		20
+
+; ******** syscalls defined in syscalls.mac:
+; * setsockopt
+; * listen
+; * socket
+; * accept4
+; * bind
+; * connect
+; * sendto
+; * recvfrom
+; * write
+; * read
+
+
+; ******** macros for both IPv4 & IPv6
+
+%macro accept arg(3)
+	accept4	%1, %2, %3, 0
+%endmacro
+
+%imacro socktimeo arg(2)
+	setsockopt %1, SOL_SOCKET, SO_RCVTIMEO, %2, 8
+%endmacro
+
+%imacro sockreuse arg(1)
+	set		ecx, SOL_SOCKET
+	push		ecx
+	setsockopt	%1, SOL_SOCKET, SO_REUSEADDR, esp, 4
+	%if stack_cleanup
+		pop	eax
+		rset	eax, 1
+	%endif
+%endmacro
+
+%imacro sockreuseport arg(1)
+	set		ecx, SOL_SOCKET
+	push		ecx
+	setsockopt	%1, SOL_SOCKET, SO_REUSEPORT, esp, 4
+	%if stack_cleanup
+		pop	eax
+	%endif
+%endmacro
+
+%imacro send 3-4 0
+	%if %4 != 0
+		sendto %1, %2, %3, %4, 0, 0
+	%else
+		write %1, %2, %3
+	%endif
+%endmacro
+
+%imacro recv 3-4 0
+	%if %4 != 0
+		recvfrom %1, %2, %3, %4, 0, 0
+	%else
+		read %1, %2, %3
+	%endif
+%endmacro
+
+%macro tcp_socket arg(1)
+	socket  %1, SOCK_STREAM
+	rset	eax, -2
+%endmacro
+
+; ******** separated macros for IPv4 and IPv6
+
+
+%macro tcp_server 1-2 AF_INET6
+	
+	%if %2 == AF_INET
+		push0
+	%else
+		set ecx, 5
+		%%loop:
+			push0
+		loop %%loop
+		rset ecx, 0
+	%endif
+	pushport %1, %2
+
+	tcp_server_sockaddr esp, %2
+%endmacro
+
+%macro tcp_server_sockaddr 2
+	%%socket:
+		%define %%SOCKET sc_arg1
+		;movzx ebx, byte [%1]
+		%%SOCKET _~ tcp_socket %2
+	server_setup %1
+%endmacro
+
+
+%macro server_setup 1
+	%assign %%oldstack stack_cleanup
+	%assign stack_cleanup 1
+
+	%%reuse:
+		sockreuse	%%SOCKET
+		rset eax, 0
+	%%bind:
+		bind		%%SOCKET, %1, 24
+		rset eax, 0
+	%%listen:
+		listen		%%SOCKET, sc_arg3
+		rset eax, 0
+	%assign stack_cleanup %%oldstack
+%endmacro
+
+
+%macro OLDtcp_server 1
+	%assign %%oldstack stack_cleanup
+	%assign stack_cleanup 1
+	%%socket:
+		%define %%SOCKET sc_arg1
+		%%SOCKET _~ tcp_socket AF_INET6
+	%%reuse:
+		sockreuse	%%SOCKET
+		rset eax, 0
+	%%bind:
+		bind6		%%SOCKET, %1
+		rset eax, 0
+	%%listen:
+		listen		%%SOCKET, sc_arg3
+		rset eax, 0
+	%assign stack_cleanup %%oldstack
+%endmacro
+
+
+%imacro tcp4_connect arg(5)
+	tcp4_socket
+	ychg		eax, ebx
+	connect4	ebx, %1,%2,%3,%4, %5
+%endmacro
+
+%macro tcp4_socket arg(0)
+	tcp_socket AF_INET
+%endmacro
+
+%imacro tcp6_socket arg(0)
+	tcp_socket AF_INET6
+%endmacro
+
+%imacro udp_connect arg(5)
+	udp_socket
+	ychg		eax, ebx
+	connect		ebx, %1,%2,%3,%4, %5
+%endmacro
+
+%imacro udp4_socket arg(0)
+	socket  AF_INET, SOCK_DGRAM
+	rset	eax, -2
+%endmacro
+
+%imacro bind46 arg(3)
+	%if %3 == AF_INET
+		bind4 %1, %2
+	%else
+		bind6 %1, %2
+	%endif
+%endmacro
+
+%imacro bind6 arg(2)
+	%if 0
+		alloca	24
+	%else
+		set ecx, 6
+		%%loop:
+			push0
+		loop %%loop
+		rset ecx, 0
+	%endif
+	pushport %2, AF_INET6
+	bind	%1, esp, 28
+%endmacro
+
+%imacro bind4 arg(2)
+	push0
+	pushport %2, AF_INET
+	bind	%1, esp, 17
+%endmacro
+
+%define ip2dword(a,b,c,d) %eval(d *256*256*256 + c *256*256 + b *256 + a)
+%define port2dword(a,b) %eval((a % 256) *256*256*256 + (a/256) *256*256 + b)
+%define port2dword4(a) port2dword(a,AF_INET)
+%define port2dword6(a) port2dword(a,AF_INET6)
+
+%imacro push4 arg(4)
+	;push %1 *256*256*256 + %2 *256*256 + %3 *256 + %4
+	push %eval(%1*256*256*256 + %2*256*256 + %3*256 + %4)
+%endmacro
+
+%imacro puship arg(4)
+	;push4	%4, %3, %2, %1
+	push	ip2dword(%1,%2,%3,%4)
+%endmacro
+
+%imacro pushport arg(2)
+	push4	%1 % 256, %1 / 256, 0, %2
+%endmacro
+
+%imacro connect arg(2)
+	pushport %2
+	connect %1, esp, 128
+%endmacro
+
+%imacro connect arg(6)
+	puship	%2, %3, %4, %5
+	connect	%1, %6
+%endmacro
+
+%imacro connect4 arg(6)
+	puship	%2, %3, %4, %5
+	pushport %6, AF_INET
+	connect %1, esp, 128
+%endmacro
+
+; ******** kernel crypto stuff
+
+%macro kcrypto_socket arg(0)
+	socket	38, 5, 0
+%endmacro
+
+%macro kcrypto_sockaddr arg(2-3) ""
+	%define %%domain `\46\0`
+	%define %%type %substr(%strcat(%2, `\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0`), 1, 14+8)
+	%ifidn %3,""
+		%define %%name ""
+	%else
+		%define %%name %strcat(%3, `\0`)
+	%endif
+	stackstring %1, %strcat(%%domain, %%type, %%name)
+%endmacro
+
+%macro kcrypto arg(2)
+	%%socket:
+	kcrypto_socket
+	rset    sc_ret, -2
+	ychg    sc_ret, sc_arg1
+	ELF_PHDR 1
+
+	%%sockaddr:
+	kcrypto_sockaddr sc_arg2, %1, %2
+
+	%%bind:
+	bind    ebx, x, 32
+
+%endmacro

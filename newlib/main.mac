@@ -1,0 +1,99 @@
+%pragma preproc sane_empty_expansion
+[WARNING +all]
+[WARNING error=label-orphan]
+;[WARNING -user]
+
+%unmacro elf 0-1
+%defalias elf elf2
+%ifenv %!DEBUG
+	;%warning DEBUG ON
+	%defstr DEBUG %!DEBUG
+%else
+	%warning DEBUG OFF
+%endif
+
+%ifndef TRACE
+	%fatal "TRACE" not defined
+	%xdefine TRACE 0
+%endif
+%if TRACE
+	%define arg(a) a
+%else
+	%define arg(a) %tok(a).nolist
+%endif
+
+%define REG_SIMPLE      0
+%define REG_OPT         1
+%define REG_SEARCH      1
+%ifdef ASS
+        %define REG_ASSERT      1
+%else
+        %define REG_ASSERT      0
+%endif
+
+%if 1
+	%include "reg.mac"
+%else
+	%include "reg-opt2.mac"
+%endif
+
+%include "string.mac"
+%include "syscall.mac"
+%include "networking.mac"
+%include "elf.mac"
+%include "nop.mac"
+%include "itoa.mac"
+%include "generic.mac"
+%include "regdump.mac"
+%include "printf.mac"
+%include "prnum.mac"
+%include "sec.mac"
+%include "functions.mac"
+;section .text align=1
+
+%macro init 0-1 0
+	[section .text align=1]
+
+	rinit
+	%if %1 == 0 && ELF_CUSTOM
+		%define ELF_OFFSET -4
+		%define %%base 0x10000
+	%else
+		%define %%base %1
+	%endif
+	%if ELF_CUSTOM
+		BASE %%base
+	%endif
+	%if REG_ASSERT
+		ELF 1
+	%else
+		ELF
+	%endif
+%endmacro
+
+%macro elf2 0-1
+	%ifidn %1,simple
+		init
+		ELF_PHDR 1
+		;[section .text.end follows=.text align=1]
+		;exit
+		;__?SECT?__
+	%elifidn %1,printf
+		init 0x3dc0b000
+		rset	eax, 0xc0
+		_malloc:
+		malloc	4096
+		ELF_PHDR 1
+		_setup_printf:
+		ychg	eax, edi
+		printf_buffer edi
+		_zero:
+		zero	eax, ebx, ecx, edx, esi, ebp
+		.end:
+	%elif %0 == 0
+		init
+	%else
+		init %1
+	%endif
+%endmacro
+

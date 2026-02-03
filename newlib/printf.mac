@@ -1,0 +1,438 @@
+;
+; tainted:
+; edi - destination pointer
+; eax - accumulator
+;
+; eax, ebx, ecx, edx: syscall
+
+%define printf_inline	1
+%define printf_buf	esp
+%define	printf_remat 0
+%define	printf_optimistic 1
+
+; TAINT: ebx
+%macro printf_start arg(1)
+	%ifctx printf
+		%fatal nested printf context
+	%endif
+	%push printf
+
+	%assign printf_count	0
+	%assign %$printf_mode	0
+	;%assign printf_addr	%1
+
+	%%printf_start:
+	set	edi, %1
+	taint	edi	; TODO: actually taint in right place
+
+	%if !printf_remat
+		;push	edi
+		set	ebx, edi
+		save	ebx, 10
+	%endif
+%endmacro
+
+%macro printf_end arg(0)
+	%ifnctx printf
+		%fatal printf_end without printf_start
+	%endif
+
+	%warning PRINTF_END mode %$printf_mode remat printf_remat count printf_count
+	;
+	; edi = printf_start + printf_count
+	;
+	; SHOULD:
+	; ecx = printf_start
+	; edx = printf_count
+	;
+	; ecx = edi - printf_count
+	; edx = edi - ecx
+	;
+	%%printf_end:
+
+	%if !printf_remat
+		;pop     sc_arg2
+		;taint   sc_arg2
+		ychg	ebx, sc_arg2
+	%endif
+
+	%if %$printf_mode && printf_count > 0
+		%if !printf_remat
+			puts	%1, printf_count
+		%else
+			lea	sc_arg2, [edi - printf_count]
+			set	sc_arg1, 1 	; just for smaller diffs
+			set	sc_arg3, printf_count
+			;sub	edx, ecx
+			puts	x, x
+		%endif
+		%if printf_optimistic
+			rset	sc_ret, printf_count
+		%endif
+	%elif printf_remat > 0
+		%fatal remat, but unknown string size
+	%else
+		set	sc_arg3, edi
+		sub	sc_arg3, sc_arg2
+		taint	sc_arg3
+		puts	x, x
+	%endif
+	%pop printf
+%endmacro
+
+%macro _pr_addlen 1
+	%warning ADDLEN %1
+	%if %1 == -1
+		%assign printf_count	-1
+	%endif
+
+	%if printf_count != -1
+		%assign printf_count	printf_count + %1
+	%endif
+	%warning printf count printf_count
+%endmacro
+
+%macro _pr_addstr 1
+	%if %isstr(%1)
+		_pr_addlen %strlen(%1)
+	%else
+		_pr_addlen -1
+	%endif
+%endmacro
+
+%macro printf_s arg(2+)
+	printf_stos %strcat(%1,%2)
+%endmacro
+
+%macro printf_s arg(1)
+	; ebx tainted by printf_start
+	; edi is output buffer
+	prohibit %1, ecx, ebx, edi
+	%if %isstr(%1)
+		%assign len %strlen(%1)
+		%if printf_inline && len <= 13 ; 13 is the break-even point
+			printf_stos %1
+		%else
+			;_pr_addlen len ; string is going to be null-terminated, but we dont print the 0
+			;%%printf_datastring:
+			;string0 esi, %1
+			_pr_addlen len
+			%%printf_datastring:
+			string	esi, %1
+			memcpy	edi, esi, len
+		%endif
+	%else
+		prohibit %1, eax
+		_pr_addstr %1
+		%%printf_s:
+		%define %%reg %1
+
+		%ifidn %1,pop
+			pop	edx
+			taint	edx
+			%define %%reg edx
+		%endif
+
+		; XXX needed?
+		;push	esi
+		push	edi
+		strlen_dynamic %%reg, ecx, esi
+		pop	edi
+		%%printf_memcpy:
+		memcpy	edi, esi, ecx
+		;pop	esi
+	%endif
+%endmacro
+
+%macro printf_buffer arg(1)
+	set	edi, %1
+	%define printf_buf edi
+%endmacro
+
+%macro printf_alloc arg(0-1) 4096
+	malloc	%1
+	ychg	eax, edi
+	%define printf_buf edi
+%endmacro
+
+
+%macro printf arg(1-*)
+	%define s(x)	printf_s	x
+	%define d(x)	printf_decs	x
+	%define u(x)	printf_dec	x
+	%define u1(x)	printf_dec1	x
+	%define u2(x)	printf_dec2b	x
+	%define u9(x)	printf_dec9	x
+	;%define ux(x,y)	printf_dec	x,y
+	%define x(x)	printf_hex	x
+	%define o(x)	printf_oct	x
+	%define b(x)	printf_bin	x
+	%define bcd(x)	printf_bcd	x
+	%define b64(x)	printf_base64	x
+	%define b32(x)	printf_base32	x
+	%define b16(x)	printf_hexkf	x
+	%define bx(x)	printf_base16b	x
+	%define nl	printf_nl
+	%define memp(x)	printf_mp	x
+	%define mem(x)	printf_mem	x
+	%define hexdump(x,y)	printf_hexdump	x,y
+
+	;%define	printf_remat 0
+	printf_start	printf_buf
+	%assign %$printf_mode	1
+	%rep %0
+;reg
+		;reg_mark
+		reg_push
+		%warning PRRRR %1
+		%if %isstr(%1)
+			s(%1)
+		%elif %isnum(%1)
+			%if 1
+				%fatal %?: bare number (%1) not supported
+			%else
+				_pr_addlen 1
+				mov	al, %1
+				taint8	eax
+				stosb
+			%endif
+		%else
+			%1
+		%endif
+		%warning PRINTF %1
+		reg_commit
+	%rotate 1
+	%endrep
+
+;reg
+	printf_end
+
+	%undef s
+	%undef d
+	%undef u
+	%undef u1
+	%undef u2
+	%undef u9
+	%undef x
+	%undef o
+	%undef b
+	%undef bcd
+	%undef b64
+	%undef b32
+	%undef b16
+	%undef bx
+	%undef nl
+	%undef memp
+	%undef mem
+%endmacro
+
+%macro printf_mem arg(2)
+	%%printf_mem:
+	_pr_addstr %2
+	push	esi
+	memcpy	edi, %1, %2
+	pop	esi
+%endmacro
+
+%macro printf_mp arg(2)
+	%%printf_mem:
+	_pr_addstr %2
+	push	esi
+	set	esi, %1
+	set	ecx, %2
+	%%.loop:
+		lodsb
+		%if 1
+			cmp	al, 32
+			jae	%%.n
+			mov	al, "."
+			%%.n:
+			cmp	al, 126
+			jna	%%.f
+			mov	al, "."
+			%%.f:
+		%else
+			lea	edx, [eax-32]
+			cmp	dl, 95
+			mov	dl, "."
+			cmovnb	eax, edx
+			taint	edx
+		%endif
+		taint8	eax
+		stosb
+	loop %%.loop
+	pop	esi
+%endmacro
+
+%macro printf_nl arg(0)
+	printf_s `\n`
+%endmacro
+
+%macro printf_fill arg(2)
+	_pr_addlen %2
+	%%printf_fill:
+	memset	edi, %1, %2
+%endmacro
+
+
+%ifndef _pr_hex
+%define _pr_hex tohex1b
+%endif
+
+%macro printf_hexdump arg(2)
+	set	esi, %1
+	set	ecx, %2
+	_pr_addlen %2*2
+
+	.loop:
+		taint	eax
+		lodsb
+		aam     16
+		.dec1:
+		xchg    ah, al
+		_pr_hex
+		.dec2:
+		xchg    ah, al
+		_pr_hex
+	.l:
+	loop    .loop
+	rset    ecx, 0
+
+%endmacro
+
+%macro printf_bcd arg(1)
+	_pr_addlen 8
+	%%printf_bcd:
+	tobcd	%1
+%endmacro
+
+%macro printf_base64 arg(1)
+	_pr_addlen 6
+	%%printf_base64:
+	tobase64 %1
+%endmacro
+
+%macro printf_base32 arg(1)
+	_pr_addlen 7
+	%%printf_base32:
+	tobase32 %1
+%endmacro
+
+%macro printf_base16 arg(1)
+	_pr_addlen 8
+	%%printf_base16:
+	tohexf %1
+%endmacro
+
+%macro printf_hexkf arg(1)
+	_pr_addlen 8
+	%%printf_hexkf:
+	itoakeepflags %1 ; 159b
+	;tohex_nohack %1 ; 137b
+	;tohex %1 ; 134b
+%endmacro
+
+%macro printf_hex arg(1)
+	_pr_addlen 8
+	%%printf_hex:
+	tohex	%1
+%endmacro
+
+%macro printf_bin arg(1)
+	_pr_addlen 32
+	%%printf_bin:
+	tobin	%1
+%endmacro
+
+%macro printf_dec arg(1)
+	_pr_addlen -1
+	%%printf_dec:
+	todec	%1
+%endmacro
+
+%macro printf_dec9 arg(1)
+	_pr_addlen -1
+	todec %1, 6
+%endmacro
+
+%macro printf_dec arg(2)
+	_pr_addlen -1
+	%%printf_decN:
+	todec	%1, %2
+%endmacro
+
+%macro printf_dec2 arg(1)
+	_pr_addlen 2
+	%%printf_dec2:
+	set	eax, %1
+	aam
+	xchg	al,ah
+	or	ax, 0x3030
+	stosw
+	taint16	eax
+%endmacro
+
+%macro printf_dec2b arg(1)
+	_pr_addlen 2
+	%%printf_dec2:
+	set	eax, %1
+	set	ecx, 10
+	div	cl
+	or	ax, 0x3030
+	stosw
+	taint16 eax
+%endmacro
+
+%macro printf_dec1 arg(1)
+	_pr_addlen 1
+	%%printf_dec1:
+	set	eax, %1
+	or	al, 0x30
+	stosb
+	taint8	eax
+%endmacro
+
+%macro printf_decs arg(1)
+	_pr_addlen -1
+	%%printf_decs:
+	todecs	%1
+%endmacro
+
+%macro printf_oct arg(1)
+	_pr_addlen 10
+	%%printf_oct:
+	tooct	%1
+%endmacro
+
+%macro printf_stos arg(1+)
+	%%printf_stos:
+        %define rwstr %strcat(%1)
+        %strlen rwlen rwstr
+	_pr_addlen rwlen
+        %assign rw4 rwlen/4
+
+        %assign i 1
+        %rep rw4
+                %warning STOS %substr(rwstr, i, 4)
+                set     eax,  %substr(rwstr, i, 4)
+                stosd
+                %assign i i+4
+        %endrep
+	%assign rest rwlen - i + 1
+	%substr reststr rwstr i, -1
+	%warning STOS REST rest reststr
+
+	%if rest == 1
+		mov	al, reststr
+		taint8	eax
+		stosb
+	%elif rest == 2
+		mov	ax, reststr
+		taint16	eax
+		stosw
+	%elif rest == 3
+		set	eax, reststr
+		stosd
+		dec	edi
+	%endif
+%endmacro

@@ -1,0 +1,333 @@
+
+%define BLACKLIST 0
+%imacro antistrace arg(0)
+	%define AS_OLDSTACK	esi
+	%define AS_STRPTR	ebx
+	%%antistrace:
+	set     AS_OLDSTACK, esp
+	pop     AS_STRPTR
+	taint	AS_STRPTR
+	lea     esp, [esp+4*AS_STRPTR+4]
+	; used: AS_OLDSTACK, AS_STRPTR
+	%%loop:
+		taint   ecx, edi
+		pop     AS_STRPTR
+		test    AS_STRPTR, AS_STRPTR
+		jz      %%loop.e
+
+		;puts   AS_STRPTR
+		;printstr `\n`
+		;push   edi
+		cmp     byte [AS_STRPTR], '_'
+		jne     %%loop
+		;printstr `MCH\n`
+		strlen1 AS_STRPTR
+		; taints ecx, edi
+		; used: AS_OLDSTACK, AS_STRPTR, eax=0, ecx, edi
+		;push   ecx
+		; strace
+		;lea    ecx, [AS_OLDSTACK+ecx-4]
+		;puts   ecx, 4
+		;reg
+		%if BLACKLIST
+			cmp     dword [AS_STRPTR+ecx-5], 'race'
+		%else
+			cmp     word [AS_STRPTR+ecx-3], 'om'
+			jne	$
+		%endif
+%if BLACKLIST
+	jne     %%loop
+	jmp	$
+%endif
+
+
+	%%loop.e:
+	taint   AS_OLDSTACK
+%if BLACKLIST
+	rset	AS_STRPTR, 0
+%else
+	taint   AS_STRPTR
+%endif
+
+	;zero    ecx, edi
+	mov     esp, AS_OLDSTACK
+	;zero    AS_OLDSTACK
+
+	%%antistrace_end:
+%endmacro
+
+%imacro antiptrace1 arg(0)
+	%%tr:
+	traceme
+	%if 0
+		inc     eax
+		jnz      %%next
+		reg_push
+		%if 0
+			exit x
+		%else
+			hlt
+		%endif
+		reg_pop
+		%%next:
+		rset    eax, 1
+	%else
+		inc	eax
+		jz	%%tr+1
+		%if 1
+			rset    eax, 1
+		%else
+			dec	eax
+			rset	eax, 0
+		%endif
+	%endif
+%endmacro
+
+%imacro antiptrace2 0
+%define ANTIP_PPID 0
+%if ANTIP_PPID
+	getppid
+	ychg    eax, ebp
+%endif
+	;clone  0x00010000 | 0x00000800 | 0x00000100 | 0x000000,0
+	;clone   0x800000,0
+	clone   0x000000,0
+	%warning GUGUS
+	rdump
+	test    eax,eax
+	jnz     %%end
+	rset	eax, 0 ; PID was zero
+	getppid
+	ychg	eax, edi
+	;clone   0x800000,0
+	clone   0x000000,0
+	test    eax,eax
+	jnz     %%e2
+	ychg    edi, ecx
+	taint   ecx
+	ptrace  PTRACE_SEIZE, ecx, 0, PTRACE_O_EXITKILL
+	reg
+	push	ecx
+	test    eax,eax
+	jz      %%e
+%if ANTIP_PPID
+	ychg    ebp, ebx
+	kill    ebx, 9
+%endif
+	pop	ebx
+	taint	ebx
+	kill    ebx, 9
+
+%%e:	seccomp_strict
+	reg
+	;pause
+	read	0, 0, -1
+
+%%e2:	
+	taint ebx
+	exit
+%%end:
+	taint	eax ; eax is a random PID
+	taint	ebx ; ebx was the first clone argument
+	taint	edx,esi,edi,ebp ; TODO what was edx and esi?
+	ychg	eax, ebx
+	waitpid	ebx, 0, 0x40000000
+%endmacro
+
+%imacro traceme arg(0)
+	syscall SYS_ptrace, 0
+%endmacro
+
+
+%imacro capdrop arg(0)
+        push0
+	push	0x20080522
+        set     sc_arg1, esp
+        alloca  24
+	set	sc_arg2, esp
+        capset  x, x
+%endmacro
+
+%imacro upcapx arg(0)
+        %%upcap:
+	alloca	36
+        mov     ecx, esp
+	lea	ebx, [ecx+24]
+	mov	[ebx], dword 0x20080522
+        capget  ebx, ecx
+        rset    eax, 0
+        pop     edx
+        pop     edx
+	pop	esi
+        push    edx
+        push    edx
+        push    edx
+        capset  ebx, ecx
+        taint   ebx, ecx, edx, esi
+        %%upcap.end:
+%endmacro
+
+%imacro upcap1 arg(0)
+        %%upcap:
+        push0
+        ;push0
+	push	0x20080522
+        mov     ebx, esp
+%endmacro
+
+%imacro upcap2 arg(0)
+        alloca  24
+        mov     ecx, esp
+        ;capget  ebx, ecx
+        capget  ebx, ecx
+        rset    eax, 0
+        pop     edx ; effective
+        pop     edx ; permitted
+	pop	esi ; inheritable
+        push    edx
+        push    edx
+        push    edx
+        capset  ebx, ecx
+        taint   ebx, ecx, edx, esi
+        %%upcap.end:
+%endmacro
+
+%imacro upcap arg(0)
+	upcap1
+	upcap2
+%endmacro
+
+%imacro dropcap arg(0)
+        push0
+	;push	0x20080522
+	push	0x19980330
+        set     ebx, esp
+	;set	eax, %eval(128+64+256)
+	set	eax, %eval(0x80000000)
+	and	esp, -16
+
+	push0
+	;push	eax
+	push	eax
+	push0
+	;push	eax
+	set	ecx, esp
+        capset  ebx, ecx
+%endmacro
+
+%imacro upcap3 arg(0)
+        %%upcap:
+        push0
+	;push	0x20080522
+	push	0x19980330
+        set     ebx, esp
+	alloca	24
+        capget  ebx, esp
+	pop	ecx
+	pop	ecx
+	pop	edx
+	taint	edx
+	push	ecx
+	push	ecx
+	push	ecx
+        capset  ebx, esp
+	%if stack_cleanup
+		alloca	-40
+	%endif
+        %%upcap.end:
+%endmacro
+
+%imacro upcap_suid arg(0)
+        %%upcap:
+        push0
+	push	0x20080522
+	;push	0x19980330
+        set     ebx, esp
+	alloca	40
+        capget  ebx, esp
+	reg
+	pop	ecx
+	pop	ecx
+	pop	edx
+	taint	edx
+	push	ecx
+	push	ecx
+	push	ecx
+        capset  ebx, esp
+	%if stack_cleanup
+		;alloca	-40
+	%endif
+        %%upcap.end:
+%endmacro
+
+;  int prctl(PR_SET_VMA, long attr, unsigned long addr, unsigned long size,
+;                 const char *_Nullable val);
+%imacro procname arg(1)
+	prctl PR_SET_NAME, %1
+%endmacro
+
+%imacro exename arg(1)
+	prctl PR_SET_MM, PR_SET_MM_EXE_FILE, %1, 0, 0
+%endmacro
+
+%imacro undumpable arg(0)
+	prctl PR_SET_DUMPABLE, 0
+%endmacro
+
+%imacro seccomp_strict arg(0)
+	seccomp 0, 0, 0
+%endmacro
+
+%imacro no_new_privs arg(0)
+	prctl PR_SET_NO_NEW_PRIVS, 1
+%endmacro
+
+%imacro secretmem arg(1)
+	memfd_secret
+	ychg		sc_ret, sc_arg1
+	ftruncate	x, %1
+	set		sc_arg5, sc_arg1
+	;taint		edi
+	;taint		ebp ;; XXX dbg
+	mmap		0x30000, %1, 3, 1 | MAP_FIXED, x, 0
+%endmacro
+
+%imacro secretstack arg(0-1)	0xffff
+%%secretstack:
+	secretmem	%1
+	set		embiggen(ebp), sc_stack
+	;add		eax, ecx
+	;mov		esp, eax
+	lea		sc_stack, [sc_ret+sc_arg2]
+%%.end:
+%endmacro
+
+; add an extra param to get the hackish version (-2 bytes)
+%imacro rwx 0-1
+	%if %0 == 0
+		%ifidn __OUTPUT_FORMAT__, bin
+			set	ebx, $$
+			set	ecx, 0x10000-1
+		%else
+			mov	ebx, $$
+			and	ebx, 0xfffff000
+			taint	ebx
+			;lea	ecx, [ebx+START-$$]
+			mov	ecx, EOF-$$
+		%endif
+
+		mprotect ebx, ecx, 7
+	%else
+		mprotect $$, -1, 7
+	%endif
+%endmacro
+
+%imacro fakeharden 0
+	%%harden:
+	cmp     ax, 0x1000
+	;cmp    rsp, rax ; for 64bit codebase, 1 byte shorter
+	jz      %%harden
+	sub     ax, 0x1000
+	or      al, 0x0
+	jmp     %%harden
+%endmacro

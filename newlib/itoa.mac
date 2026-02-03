@@ -1,0 +1,436 @@
+; input register as param %1 (except eax, ecx)
+; output as string to edi
+; output:
+; ecx: 0
+; eax: last hex ascii char
+; input: same 
+%ifndef HEXF_CHAR
+%define HEXF_CHAR "k"
+%endif
+
+%macro tohexf 1
+	prohibit %1, eax
+
+	doloop 8		;do{  8 hex digits
+		rol	%1, 4		; rotate high nibble to the bottom
+
+		mov	eax, %1 
+		and	al, 0x0f	; isolate low nibble
+		add	al, HEXF_CHAR
+		stosb			; *edi++ = al
+		;reg
+	endloop		;}while(--ecx)
+	
+	;reg
+	rset	eax, -1
+%endmacro
+
+%macro todecs 1
+	;prohibit %1, edx
+
+	%%todecs:
+	%define TMP edx
+	set	TMP, %1
+
+	test	TMP, TMP
+	ELF_PHDR 1
+	jns	%%next
+
+	mov	al, "-"
+	stosb
+	taint8	eax
+	neg	TMP
+	
+	%%next:
+	rset	TMP, -4
+	todec	TMP
+
+%endmacro
+
+%macro todec 1
+	;prohibit %1, edx
+
+	; taints:
+	; eax/edx: division
+	; ecx: divisor
+
+	set	eax, %1
+	push0	; guard value for reversal
+	%define R10 ecx
+	set	R10, 10
+	ELF_PHDR 1
+	
+	%%loop:
+	taint	eax, edx
+	set	edx, 0
+	div	R10
+
+	add	dl, 0x30
+	rset	edx, -2
+	push	edx
+
+	test	eax, eax
+	jnz	%%loop
+	rset	eax, 0
+	
+	pop	eax
+
+	%%reverse:
+	stosb
+	pop	eax
+	test	eax, eax
+	jnz	%%reverse
+	%%end:
+
+	rset	eax, 0
+
+%endmacro
+
+%macro todec 2
+	;prohibit %1, edx
+
+	; taints:
+	; eax/edx: division
+	; ecx: divisor
+
+	set	eax, %1
+	%define R10 esi
+	set	R10, 10
+	reg
+	
+	%define %%N %2
+	doloop %%N
+		taint	eax, edx
+		set	edx, 0
+		div	R10
+
+		add	dl, 0x30
+		rset	edx, -2
+		push	edx
+
+		reg
+	endloop
+	;rset	eax, 0
+	;pop	eax
+		
+	doloop %%N
+		pop	eax
+		reg
+		stosb
+	endloop
+
+	;rset	eax, 0
+
+%endmacro
+
+
+%macro todecr 1
+	set	eax, %1
+	set	ebx, 10
+	%%loop:
+	set	edx, 0
+	div	ebx
+
+	%if 1
+		ychg	eax, edx
+		add	al, 0x30
+		stosb
+		ychg	eax, edx
+	%else
+		add	dl, 0x30
+		mov	[edi], dl
+		inc	edi
+	%endif
+
+	test	eax, eax
+	jnz	%%loop
+	rset	eax, -2
+%endmacro
+
+
+%macro tobin_salc 1
+
+	doloop 32		;do{  10 octal digits
+		taint	eax
+		rol	%1, 1
+		;adc	al,'0'
+		salc
+		reg
+		sub	al,-'1'
+		stosb			; *edi++ = al
+		;reg
+		;rol	%1, 3		; rotate high nibble to the bottom
+	endloop		;}while(--ecx)
+	
+	;reg
+	rset	eax, -1
+%endmacro
+
+%macro tobin 1-2 32
+
+	%if %2 < 32
+		rol	%1, 32-%2
+	%endif
+	doloop %2		;do{  10 octal digits
+		taint	eax
+		zero	eax
+		rol	%1, 1
+		adc	al,'0'
+		stosb			; *edi++ = al
+		;reg
+		;rol	%1, 3		; rotate high nibble to the bottom
+	endloop		;}while(--ecx)
+	
+	;reg
+	rset	eax, -2
+%endmacro
+
+%macro tooct2 1
+
+	;ror	%1, -1
+	ror	%1, 1
+	doloop 11		;do{  10 octal digits
+
+		rol	%1, 3
+		mov	eax, %1 
+		and	al, 7		; isolate low nibble
+		or	al, '0'
+		stosb			; *edi++ = al
+	endloop		;}while(--ecx)
+	
+	; TODO: if we use al instead of eax we could go back to -2
+	rset	eax, -1
+%endmacro
+
+%macro tooct 1
+
+	doloop 10		;do{  10 octal digits
+
+		rol	%1, 3
+		mov	eax, %1 
+		and	al, 7		; isolate low nibble
+		or	al, '0'
+		stosb			; *edi++ = al
+	endloop		;}while(--ecx)
+	rol	%1, 2
+	
+	; TODO: if we use al instead of eax we could go back to -2
+	rset	eax, -1
+%endmacro
+
+%macro tobcd 1
+
+	doloop 8		;do{  8 hex digits
+		rol	%1, 4		; rotate high nibble to the bottom
+
+		mov	eax, %1 
+		and	al, 0x0f	; isolate low nibble
+		or	al, 0x30
+		stosb			; *edi++ = al
+		;reg
+	endloop		;}while(--ecx)
+	
+	;reg
+	rset	eax, -1
+%endmacro
+
+%macro tohex_nohack 1
+;;; x86-64 int -> hex  in 8 bytes
+;    10 0000000C 0430                   add    al, '0'
+;    11 0000000E 3C39                   cmp    al, '9'
+;    12 00000010 7602                   jbe  .digit
+;    13 00000012 0427                     add    al, 'a'-10 - '0'     ; al =  al>9 ? al+'a'-10 : al+'0'
+;    14                             .digit:
+	doloop 8		;do{  8 hex digits
+		rol	%1, 4		; rotate high nibble to the bottom
+
+		mov	eax, %1 
+		and	al, 0x0f	; isolate low nibble
+		add	al, "0"
+		cmp	al, "9"
+		jbe	%%digit
+		add	al, "a" - 10 - "0"
+		%%digit:
+		stosb			; *edi++ = al
+		;reg
+	endloop		;}while(--ecx)
+	
+	;reg
+	rset	eax, -1
+%endmacro
+
+%macro tohex3 1
+
+	doloop 8		;do{  8 hex digits
+		rol	%1, 4		; rotate high nibble to the bottom
+
+		mov	eax, %1 
+		and	al, 0x0f	; isolate low nibble
+		cmp	al, 10		; set CF according to digit>9
+		sbb	al, 0x69	; read CF, set CF and conditionally set AF, and wrap AL to > 99h
+		das			; magic, which happens to work
+		stosb			; *edi++ = al
+		;reg
+	endloop		;}while(--ecx)
+	
+	;reg
+	rset	eax, -1
+%endmacro
+
+%macro tohex2 1
+
+	doloop 8		;do{  8 hex digits
+		rol	%1, 4		; rotate high nibble to the bottom
+
+		mov	eax, %1 
+		and	al, 0x0f	; isolate low nibble
+		cmp	al, 10		; set CF according to digit>9
+		sbb	al, 0x69	; read CF, set CF and conditionally set AF, and wrap AL to > 99h
+		das			; magic, which happens to work
+		mov	[edi], al	; *edi++ = al
+		inc	edi
+	endloop		;}while(--ecx)
+
+	rset	eax, -1
+%endmacro
+
+%macro tohex1 0
+	;and	al, 0x0f	; isolate low nibble
+	cmp	al, 10		; set CF according to digit>9
+	sbb	al, 0x69	; read CF, set CF and conditionally set AF, and wrap AL to > 99h
+	das			; magic, which happens to work
+	stosb			; *edi++ = al
+%endmacro
+
+%macro tohex1b 0
+	;and	al, 0x0f	; isolate low nibble
+	add	al, "0"
+	cmp	al, "9"
+	jbe	%%digit
+	add	al, "a" - 10 - "0"
+	%%digit:
+	stosb			; *edi++ = al
+%endmacro
+
+%macro tohex 1
+	prohibit %1, eax
+
+	doloop 8		;do{  8 hex digits
+		rol	%1, 4		; rotate high nibble to the bottom
+
+		mov	eax, %1 
+		and	al, 0x0f	; isolate low nibble
+		cmp	al, 10		; set CF according to digit>9
+		sbb	al, 0x69	; read CF, set CF and conditionally set AF, and wrap AL to > 99h
+		das			; magic, which happens to work
+		stosb			; *edi++ = al
+		;reg
+	endloop		;}while(--ecx)
+
+	;reg
+	rset	eax, -1
+%endmacro
+
+%macro tohex 2
+
+	set	%2, 8
+	%%loop:
+		rol	%1, 4		; rotate high nibble to the bottom
+
+		mov	eax, %1 
+		and	al, 0x0f	; isolate low nibble
+		cmp	al, 10		; set CF according to digit>9
+		sbb	al, 0x69	; read CF, set CF and conditionally set AF, and wrap AL to > 99h
+		das			; magic, which happens to work
+		stosb			; *edi++ = al
+		dec	%2
+		;reg
+	jnz %%loop
+
+	;reg
+	rset	eax, -1
+	rset	%2, 0
+%endmacro
+
+;
+; $ perl -E'$i=56;$j=$i+63;say map chr,$i..$j'
+; 89:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrstuvw
+; $ perl -E'$i=53;$j=$i+63;say map chr,$i..$j'
+; 56789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`abcdefghijklmnopqrst
+; exact reason for these offsets lost to time
+; 56: can't be confused with octal, 0/O|1/I not included
+; 53: 'u' is used as delimiter in ascii85, 'x' used in hex numbers
+; N.b.: uuencode is simply using offset 32
+
+%macro tobase64 1
+	ror	%1, 4
+	doloop 6		;do{  10 octal digits
+		rol	%1, 6		; rotate high nibble to the bottom
+
+		mov	eax, %1 
+		and	al, 0x3f	; isolate low nibble
+		add	al, "5"
+		stosb			; *edi++ = al
+
+	endloop		;}while(--ecx)
+	
+	;reg
+	rset	eax, -1
+%endmacro
+
+%assign hexmap_included 0
+%macro itoakeepflags 1
+	prohibit %1, eax
+
+	%if hexmap_included == 0
+		[section .rodata align=1]
+		hexmap: db "0123456789abcdef"
+		__?SECT?__
+		%assign hexmap_included 1
+	%endif
+
+	%assign oldkeep	 reg_keepflags
+	%assign reg_keepflags 1
+
+	set	eax, 0
+	rset	eax, -2
+
+	doloop 8		;do{  8 hex digits
+		set	eax, 28
+		shrx	eax, %1, eax		; move back to bottom
+		;reg
+		mov	al, [hexmap+eax]
+		stosb			; *edi++ = al
+		rorx	%1, %1, 28		; rotate low nibble to the top
+	endloop		;}while(--ecx)
+	
+	rset	eax, -1
+	%assign reg_keepflags oldkeep
+%endmacro
+
+; $ perl -E'$i=58;$j=$i+32;say map chr,$i..$j'
+; ;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ
+; $ perl -E'$i=54;$j=$i+32;say map chr,$i..$j'
+; 6789:;<=>?@ABCDEFGHIJKLMNOPQRSTUV
+; $ perl -E'$i=56;$j=$i+32;say map chr,$i..$j'
+; 89:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWX
+; exact reason for these offsets lost to time
+; 56: can't be confused with octal, 0/O|1/I not included
+; 58: can't be confused with octal/decimal, uses all uppercase letters
+; 54: um maybe WXYZ could be used as end marker/4 zero marker?
+
+%macro tobase32 1
+	ror	%1, 3
+	doloop 7		;do{  10 octal digits
+		rol	%1, 5		; rotate high nibble to the bottom
+
+		mov	eax, %1 
+		and	al, 0x1f	; isolate low nibble
+		add	al, "0"
+		stosb			; *edi++ = al
+
+	endloop		;}while(--ecx)
+	
+	;reg
+	rset	eax, -1
+%endmacro

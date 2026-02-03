@@ -1,0 +1,13 @@
+%macro reg 0-1
+%if DEBUG
+	%if %0 == 1
+		pusha
+		pushf
+		printstr %1
+		popf
+		popa
+	%else
+	%endif
+	call regdump
+%endif
+%endmacro

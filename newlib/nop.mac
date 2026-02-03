@@ -1,0 +1,9 @@
+%define nop1	nop
+%define nop2	xchg ax, ax
+%define nop3	nop dword [eax]
+%define nop4	nop dword [byte eax]
+%define nop5	nop dword [byte 2*eax]
+%define nop6	nop word  [byte 2*eax]
+%define nop7	nop dword [dword eax]
+%define nop8	nop dword [dword 2*eax]
+%define nop9	nop word  [dword 2*eax]

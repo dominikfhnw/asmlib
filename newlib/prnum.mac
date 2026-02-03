@@ -1,0 +1,71 @@
+%ifndef stack_cleanup
+%define stack_cleanup 1
+%endif
+
+; print EAX, newline, and exit
+%imacro printnumexit 0
+	%define stack_cleanup 0
+	printnum
+	exitafterputs
+%endmacro
+
+%imacro __print_init 1
+	set	ecx, esp
+	set	edx, %eval((%1 - '0') % 255)
+	set	ebx, 10
+	set	esi, 0
+%endmacro
+
+%imacro __print_loop 0
+	%%loop:
+		add     dl, '0'
+		dec     ecx
+
+		mov     [ecx], dl
+		cdq
+
+		inc     esi
+		test    eax,eax 
+		div     ebx
+	jnz %%loop
+	rset	eax, 0
+	rset	edx, 0
+	rset	esi, -2
+	taint	ecx, esi
+%endmacro
+
+%imacro __print_finish 0
+	puts	ecx, esi
+
+	%if stack_cleanup
+		%error printnum cant cleanup stack
+	;sub	esp, -12
+	%endif
+
+%endmacro
+
+%imacro NEWprintnum 0-1 `\n`
+	printf u(eax),nl
+%endmacro
+
+; print EAX, newline
+%imacro printnum arg(0-1) `\n`
+	__print_init %1
+	__print_loop
+	__print_finish
+%endmacro
+
+%imacro printnumsafe 0
+	pusha
+	printnum
+	popa
+%endmacro
+
+;%macro input 0
+;	printstr "Press enter to continue"
+;	push0
+;	read	0, esp, 1
+;	pop	ecx
+;	taint	ecx
+;%endmacro
+;
