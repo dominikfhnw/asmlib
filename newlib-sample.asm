@@ -1,6 +1,6 @@
 %if 0
 # polyglot shellscript/nasm file. Just run it as a shellscript to compile
-. ./newbuild.sh
+. ./newlib/build.sh
 %endif
 
 %include "main.mac"		; main library
