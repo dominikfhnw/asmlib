@@ -56,11 +56,10 @@ EXTERN _start
 		_phdr:
 		dd	1
 		_off:
-		dd	%eval(0  + EOFF)
 		%if EOFF != 0
-			dd	$$ + EOFF	; vaddr
+			dd	EOFF, $$ + EOFF	; vaddr
 		%else
-			dd	$$		; vaddr
+			dd	EOFF, $$	; vaddr
 		%endif
 		_e_type:
 		%if DYN == 1
@@ -103,11 +102,10 @@ _start:
 			times $$-$+42   nop
 		%endif
 
-		dw	0x20
-		db	1
-
 		%if %0 > 0
-			db	0
+			dw	0x20, 1
+		%else
+			db	0x20, 0, 1
 		%endif
 	%endif
 	%define ELF_ALLINONE 1
