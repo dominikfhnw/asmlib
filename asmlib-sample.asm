@@ -6,5 +6,5 @@
 %include "main.mac"		; main library
 elf simple			; add simple ELF header, PHDR gets automatically added with "simple"
 
-printstr `Hello, world!\n`
+puts `Hello, world!\n`
 exit
