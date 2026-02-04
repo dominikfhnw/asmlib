@@ -27,10 +27,12 @@ if [ "$LIBRARY" -ne 0 ]; then
 	FULL=1
 fi
 
+DIR=${BASH_SOURCE%/*}
+
 build(){
 	sed -E 's/:=/_~/' "$0" > "$0.sed"
 	SOURCE="$0.sed"
-	NASM="nasm -DTRACE=$TRACE -w+all -Werror=label-orphan -g -I newlib/ ${EXTRA:-}" 
+	NASM="nasm -DTRACE=$TRACE -w+all -Werror=label-orphan -g -I $DIR ${EXTRA:-}"
 	if [ -n "${FULL-}" ]; then
 		FULLBIN="$OUT.full"
 		rm -f $OUT $OUT.o $FULLBIN

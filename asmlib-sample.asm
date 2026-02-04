@@ -1,6 +1,6 @@
 %if 0
-# polyglot shellscript/nasm file. Just run it as a shellscript to compile
-. ./newlib/build.sh
+# polyglot shellscript/nasm file. Just run it as a shellscript to assemble
+. ./asmlib2/build.sh
 %endif
 
 %include "main.mac"		; main library
