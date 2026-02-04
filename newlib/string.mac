@@ -294,8 +294,8 @@
 	stackstring %1, rwstr
 %endmacro
 
-%macro stackstring arg(2)
-	stackstring_raw %2
+%macro stackstring arg(2+)
+	stackstring_raw %strcat(%2)
 	set	%1, esp
 %endmacro
 
@@ -306,9 +306,9 @@
 	%%endstr:
 %endmacro
 
-%macro piestring arg(2)
-	piestring_raw %2
-	pop	%1
+%macro piestring arg(2+)
+	piestring_raw %strcat(%2)
+	pop	embiggen(%1)
 	taint	%1
 %endmacro
 
@@ -360,9 +360,9 @@
 	;piestring	%1, %2
 %endmacro
 
-%macro string arg(2)
+%macro string arg(2+)
 	%if %isstr(%2)
-		staticstring %1, %2
+		staticstring %1, %strcat(%2)
 	%else
 		set %1, %2
 	%endif
