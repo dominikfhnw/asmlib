@@ -641,6 +641,7 @@ rtaint
 %endif
 %endmacro
 
+; mark registers as "unknown value"
 %imacro taint arg(1-*)
 	%rep %0
 		;%warning %1 tainted: -1
@@ -649,6 +650,7 @@ rtaint
 	%endrep
 %endmacro
 
+; mark lower 8 bits as tainted
 %macro taint8 arg(1)
 	rget_maybe	%1
 	%if reg_8bit
@@ -662,6 +664,7 @@ rtaint
 	%endif
 %endmacro
 
+; mark lower 16 bits as tainted
 %macro taint16 arg(1)
 	rget_maybe	%1
 	%if reg_16bit
@@ -673,6 +676,7 @@ rtaint
 	%endif
 %endmacro
 
+; check if valid register name, generate 8b/16b register names
 %imacro regparse 1
 	%defstr reg_str %1
 
@@ -699,8 +703,9 @@ rtaint
 		%define reg_high INVALID
 		%define reg_leg  INVALID
 	%endif
-	%strcat reg_leg  reg_id reg_type
-	%deftok reg_leg  reg_leg
+	; XXX duplicate
+	;%strcat reg_leg  reg_id reg_type
+	;%deftok reg_leg  reg_leg
 
 	%ifidn reg_str,'esp'
 		%assign reg_notesp 0
@@ -709,11 +714,10 @@ rtaint
 	%endif
 %endmacro
 
+; parse 32b integer to unsigned/signed variants
 %imacro int32 1
-
 	%if %1 < 0
 		%assign uint32 (0x100000000 + %1)
-		;%assign uint32 (~%1)
 	%else
 		%assign uint32 (+%1 % 0xFFFFFFFF)
 	%endif
@@ -723,29 +727,20 @@ rtaint
 	%else
 		%assign sint32 %1
 	%endif
-
-	;%warning %1 signed: sint32
-	;%warning %1 unsigned: uint32
 %endmacro
 
 %assign rsave 0
 
+; set register, assuming it currently contains 0
 %imacro setfz arg(2)
 	regparse %1
 
-	;%ifnum %2
 	int32 %2
-	;%else
-	;%assign sint32 0
-	;%assign uint32 0
-	;%endif
 	%warning LOGARITHM %eval(ilog2f(uint32)) == %eval(ilog2c(uint32))
 
-	;rget %1
 	%assign reg_delta uint32 - reg_val
 	%warning setfz %1 old: reg_val, new: uint32, delta: reg_delta
 
-	;%warning LOG %eval(ilog2f(uint32)) == %eval(ilog2c(uint32))
 	%if reg_val == uint32
 		%warning same value, skipping
 	%elif %2 == 0
