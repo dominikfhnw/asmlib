@@ -25,6 +25,7 @@
 %define SYS_exit_group		252
 %define SYS_get_thread_area	244
 %define SYS_set_thread_area	243
+%define SYS_setxattr		226
 %define SYS_mmap		192
 %define SYS_sendfile		187
 %define SYS_capset		185
@@ -159,6 +160,10 @@
 %define TIOCSWINSZ		0x5414
 
 %define AT_EMPTY_PATH		0x1000
+
+%define XATTR_CREATE		1
+%define XATTR_REPLACE		2
+
 
 %assign sc_arg1_type 0
 %assign sc_arg2_type 0
@@ -706,6 +711,18 @@ SECTION .text
 
 %imacro set_thread_area arg(1)
 	syscall SYS_set_thread_area, %1
+%endmacro
+
+%imacro setxattr arg(4-5) 0
+	%assign sc_arg1_type 1
+	%assign sc_arg2_type 1
+	%assign sc_arg3_type 2
+	syscall SYS_setxattr, %1, %2, %3, %4, %5
+%endmacro
+
+%imacro setxattr arg(3)
+	strlen %3, sc_arg4, sc_arg3
+	setxattr %1, %2, sc_arg3, sc_arg4
 %endmacro
 
 %imacro ioctl arg(3)
