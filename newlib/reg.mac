@@ -1056,9 +1056,9 @@ rtaint
 	%elifstr %2
 		__set_num %1, %2
 	%elifid %2
-		%if %1 == %2
+		%ifidn %1,%2
 			; nothing
-		%elif REG_DESTRUCTIVE && %isidn(%1,eax)
+		%elif REG_DESTRUCTIVE && %isidn(%1,eax) && __?PASS?__ != 3
 			ychg	%1, %2
 		%else
 			mov	%1, %2	; 2 bytes
