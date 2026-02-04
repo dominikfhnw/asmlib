@@ -347,7 +347,7 @@
 %endmacro
 
 %macro staticstring arg(2)
-	%if %strlen(%2) <= 5 && !stack_cleanup
+	%if %strlen(%2) <= 9 && !stack_cleanup && __?BITS?__ != 64
 		stackstring	%1, %2
 		;datastring	%1, %2
 		;piestring	%1, %2
