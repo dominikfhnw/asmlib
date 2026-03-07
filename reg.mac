@@ -1037,6 +1037,8 @@ rtaint
 	%ifidn %2,pop
 		pop	%1
 		taint	%1
+	%elifidn %2,x
+		; do nothing
 	%elif REG_SIMPLE
 		%if %1 != %2
 			mov	%1, %2
