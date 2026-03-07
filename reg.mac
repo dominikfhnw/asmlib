@@ -692,20 +692,16 @@ rtaint
 		%assign reg_var 1
 		%strcat reg_low  reg_id "l"
 		%strcat reg_high reg_id "h"
-		%strcat reg_leg  reg_id "x"
 
 		%deftok reg_low  reg_low
 		%deftok reg_high reg_high
-		%deftok reg_leg  reg_leg
 	%else
 		%assign reg_var 0
 		%define reg_low  INVALID
 		%define reg_high INVALID
-		%define reg_leg  INVALID
 	%endif
-	; XXX duplicate
-	;%strcat reg_leg  reg_id reg_type
-	;%deftok reg_leg  reg_leg
+	%strcat reg_leg  reg_id reg_type
+	%deftok reg_leg  reg_leg
 
 	%ifidn reg_str,'esp'
 		%assign reg_notesp 0
