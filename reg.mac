@@ -1067,7 +1067,7 @@ rtaint
 	%endif
 %endmacro
 
-%imacro push0 0
+%imacro push0 arg(0)
 	findzero
 	%ifnidn reg_zero,""
 		push	%tok(reg_zero)
