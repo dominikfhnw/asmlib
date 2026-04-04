@@ -3,6 +3,12 @@
 [WARNING error=label-orphan]
 ;[WARNING -user]
 
+%macro dbg 2+.nolist
+	%if %1 <= 5
+		%warning D%1 %2
+	%endif
+%endmacro
+
 %ifenv %!DEBUG
 	;%warning DEBUG ON
 	%defstr DEBUG %!DEBUG

@@ -417,7 +417,7 @@
 	popa
 %endmacro
 
-%imacro dbg arg(2)
+%imacro OLDdbg arg(2)
 	reg_push
 	pusha
 	;rtaint
@@ -426,7 +426,7 @@
 	reg_pop
 %endmacro
 
-%imacro dbg arg(1)
+%imacro OLDdbg arg(1)
 	reg_push
 	rtaint
 	%if 0
