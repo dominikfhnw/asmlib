@@ -6,6 +6,12 @@
 %define	REG_ASSERT 0
 %endif
 
+%ifndef	ENABLE_LEA
+%define	ENABLE_LEA 0
+%endif
+%assign lea_scale 0
+%assign lea_disp 0
+%assign LEA_PERPLEXITY 0
 ; Optimization levels:
 ; Old:
 ; REG_SIMPLE: always use MOV
@@ -253,10 +259,6 @@
 %define reg_inc 1
 %define zero_seg 1
 %assign reg_notneg 0
-
-%assign COPY_FROM_OTHER 0
-%assign LEA_FROM_OTHER  0
-%assign IMUL_FROM_OTHER 0
 
 %imacro zero 1-*.nolist
 	%assign zero_eax 0
@@ -757,10 +759,15 @@ rtaint
 	%elif uint32 == 0xFFFF && !reg_keepflags && reg_inc
 		%assign rsave rsave+3
 		dec	reg_leg			;2 bytes
-	%elif COPY_FROM_OTHER
-		%warning %1: FROM_OTHER
-		mov	%1, COPY_FROM_OTHER
-	%elif reg_notesp && sint32 < 128 && sint32 > -129
+	%elif ENABLE_LEA && lea_scale > 0
+		dbg 0, %1, %2: lea search
+		%assign rsave rsave+2		;3 bytes
+		lea	%1, [lea_base + lea_scale * lea_index]
+	%elif ENABLE_LEA && lea_disp != 0
+		dbg 0, %1, %2: lea search disp
+		%assign rsave rsave+2		;3 bytes
+		lea	%1, [lea_dbase + lea_disp]
+	%elif !ENABLE_LEA && reg_notesp && sint32 < 128 && sint32 > -129
 		%assign rsave rsave+2
 		lea	%1, [%1+%2]		;3 bytes
 	%elif reg_var && sint32 < 0 && sint32 >= -256 && !reg_keepflags && reg_inc
@@ -789,12 +796,6 @@ rtaint
 		%assign rsave rsave+2
 		inc	%1
 		ror	%1, 1			;3 bytes
-	%elif LEA_FROM_OTHER
-		%warning %1: FROM_OTHER
-		lea	%1, [LEA_FROM_OTHER]
-	%elif IMUL_FROM_OTHER
-		%warning %1: FROM_OTHER
-		lea	%1, [LEA_FROM_OTHER]
 	%elif uint32 < 65536
 		%assign rsave rsave+1
 		mov	reg_leg, %2		;4 bytes
@@ -842,6 +843,9 @@ rtaint
 	;rdump
 	dbg 4, %1 old: reg_val, new: uint32/sint32, delta: reg_delta
 	;reg_assert %1, reg_val	
+	%if ENABLE_LEA
+		leasearch uint32
+	%endif
 	%if REG_SEARCH
 		reg_search uint32
 		rget_maybe %1
@@ -899,6 +903,14 @@ rtaint
 			mov	%1, reg_search_match	; 2 bytes
 		%endif
 		
+	%elif ENABLE_LEA && lea_scale > 0
+		dbg 0, %1, %2: lea_base+lea_index*lea_scale lea search
+		%assign rsave rsave+2		;3 bytes
+		lea	%1, [lea_base + lea_scale * lea_index]
+	%elif ENABLE_LEA && lea_disp != 0
+		dbg 0, %1, %2: lea search disp
+		%assign rsave rsave+2		;3 bytes
+		lea	%1, [lea_dbase + lea_disp]
 	%elif sint32 == -1 && !reg_keepflags
 		dbg 4, %1: minus one #2 (%1 reg_val uint32)
 		; clears carry&overflow flags
@@ -921,13 +933,7 @@ rtaint
 		push	%2
 		;%fatal uggg oggg __?BITS?__
 		pop	embiggen(%1)	; 3 bytes
-	%elif LEA_FROM_OTHER
-		%warning %1: FROM_OTHER
-		lea	%1, [LEA_FROM_OTHER]
-	%elif IMUL_FROM_OTHER
-		%warning %1: FROM_OTHER
-		lea	%1, [LEA_FROM_OTHER]
-	%elif reg_search_zero != 0 && reg_notesp && sint32 < 128 && sint32 > -129
+	%elif !ENABLE_LEA && reg_search_zero != 0 && reg_notesp && sint32 < 128 && sint32 > -129
 		rget	reg_search_zero
 		dbg 4, %1: FROM_OTHER zero
 		%assign rsave rsave+2
@@ -1090,4 +1096,102 @@ rtaint
 	%else
 		push	%1
 	%endif
+%endmacro
+
+%macro leasearch arg(1)
+	%assign lea_scale 0
+	%assign lea_disp 0
+	; index
+	%if !LEA_PERPLEXITY
+		lea2 %1, eax
+		lea2 %1, ebx
+		lea2 %1, ecx
+		lea2 %1, edx
+		lea2 %1, esi
+		lea2 %1, edi
+		lea2 %1, ebp
+	%else
+		lea2 %1, ebp
+		lea2 %1, edi
+		lea2 %1, esi
+		lea2 %1, edx
+		lea2 %1, ecx
+		lea2 %1, ebx
+		lea2 %1, eax
+	%endif
+%endmacro
+
+%macro lea2 arg(2)
+	rget_maybe %2
+	%if reg_val > -1
+		%assign lea_delta %1-reg_val
+		%if lea_delta < 128 && lea_delta > -129
+			dbg 0, DELTA %1 %2 lea_delta
+			%assign	lea_disp lea_delta
+			%define lea_dbase %2
+			rget %2
+		%endif
+		; base
+		%if !LEA_PERPLEXITY
+			lea3 %1, %2, eax
+			lea3 %1, %2, ebx
+			lea3 %1, %2, ecx
+			lea3 %1, %2, edx
+			lea3 %1, %2, esi
+			lea3 %1, %2, edi
+			lea3 %1, %2, esp
+		%else
+			lea3 %1, %2, esp
+			lea3 %1, %2, edi
+			lea3 %1, %2, esi
+			lea3 %1, %2, edx
+			lea3 %1, %2, ecx
+			lea3 %1, %2, ebx
+			lea3 %1, %2, eax
+		%endif
+	%endif
+%endmacro
+
+%macro lea3 arg(3)
+	rget_maybe %3
+	%assign %%base reg_val
+	%assign dbglvl 0
+	%assign LEA_MAX 0xffffffff
+
+	%if reg_val > -1
+		rget_maybe %2
+		%assign %%index reg_val
+		;dbg 0, LEA %2 %3 %%base + %%index == %1
+
+		%if (%%base + %%index) & LEA_MAX == %1
+			%define lea_base	%3
+			%define lea_index	%2
+			rget	%2
+			rget	%3
+			%assign lea_scale	1
+			dbg dbglvl, LEA FOUND %2,%3 %%base + lea_scale * %%index
+		%elif (%%base + (2*%%index)) & LEA_MAX == %1
+			%define lea_base	%3
+			%define lea_index	%2
+			rget	%2
+			rget	%3
+			%assign lea_scale	2
+			dbg dbglvl, LEA FOUND %2,%3 %%base + lea_scale * %%index
+		%elif (%%base + (4*%%index)) & LEA_MAX == %1
+			%define lea_base	%3
+			%define lea_index	%2
+			rget	%2
+			rget	%3
+			%assign lea_scale	4
+			dbg dbglvl, LEA FOUND %2,%3 %%base + lea_scale * %%index
+		%elif (%%base + (8*%%index)) & LEA_MAX == %1
+			%define lea_base	%3
+			%define lea_index	%2
+			rget	%2
+			rget	%3
+			%assign lea_scale	8
+			dbg dbglvl, LEA FOUND %2,%3 %%base + lea_scale * %%index
+		%endif
+	%endif
+
 %endmacro
