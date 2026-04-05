@@ -16,7 +16,9 @@
 %define ZEROES 1
 %endif
 
-%define PPRO 1
+%ifndef PPRO
+%assign PPRO 1
+%endif
 
 ; each of those adds 4 byte of code and 1*REGS of stack used
 ;%define SPACE 1
