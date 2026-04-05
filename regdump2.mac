@@ -36,6 +36,20 @@
 ;  A   C   D   B   S   P   s   d   f
 ;hlt
 
+%xdefine isdos	%isdef(DOS) && DOS
+
+%macro reg_nl 0
+	%if isdos
+		mov	al, 0x0d
+		stosb
+		mov	al, 0x0a
+		stosb
+		taint8	eax
+	%else
+		stos	0x0a
+	%endif
+%endmacro
+
 %macro regdump_func arg(0)
 %if LABEL || ALTLABEL
 %define SPACE 1
@@ -47,9 +61,13 @@
 %error cant have "LABEL" and "ALTLABEL" together
 %endif
 
+%assign NMUL 1
+%if isdos
+	%assign NMUL 2
+%endif
 %assign REGS (9+IP+STACK)
-%assign RECORD (8 + LABEL + ALTLABEL + SPACE + NEWLINE + EXTENDED)
-%assign TOTAL ( (RECORD*REGS) + (2*NEWLINE) + (FLAGS*13) ) - 0
+%assign RECORD (8 + LABEL + ALTLABEL + SPACE + NEWLINE*NMUL + EXTENDED)
+%assign TOTAL ( (RECORD*REGS) + (2*NEWLINE*NMUL) + (FLAGS*12 + FLAGS*NMUL) ) - 0
 %warning TOTAL STACK ToOTAL
 %warning FFF rrr RECORD
 rtaint			; we can be called from everywhere
@@ -63,8 +81,8 @@ reg_push
 	mov	[regdump_stack_top], esp
 	mov	esp, regdump_stack_top
 %endif
-pusha
-pushf			; save processor state on stack
+pushad
+pushfd			; save processor state on stack
 
 
 %if SEPARATE_STACK
@@ -93,6 +111,9 @@ call	.begin
 	; the "always 0" reserved registers have been set to X,
 	; as that slightly increases the compression rate of this code
 	db "CrPXAXZSTIDO"
+	%if isdos
+		db 13
+	%endif
 	db 10
 	%endif
 	%if LABEL == 2
@@ -123,15 +144,19 @@ call	.begin
 	%endif
 	%endif
 .begin:
-pop	esi
+%if isdos
+	xor	esi, esi
+	pop	si
+%else
+	pop	esi
+%endif
 ; esi points to label texts
 ; edx points to the pusha registers.
 ; edx will be swapped with esi when switching between printing labels and contents
-realesp	edx
-taint	esi, edx
-%else
-realesp	esi
+set	edx, esp
 taint	esi
+%else
+set	esi, esp
 %endif
 
 %if ALTLABEL
@@ -142,18 +167,21 @@ set	edx, 'Z'
 ; used elsewhere: esi, edx, esp, eax
 ; free: ebx, ecx
 %if FLAGS
-pushf
+pushfd
 pop	ebx
 %endif
 
 rdump
-alloca	TOTAL
-realesp	edi
-taint	edi
+%if isdos
+	add	sp, -TOTAL
+%else
+	alloca	TOTAL
+%endif
+set	edi, esp
 
 cld
 %if NEWLINE
-	stos	0x0a
+	reg_nl
 %endif
 
 
@@ -182,8 +210,13 @@ cld
 	endloop
 
 	; nl
-	lodsb
-	stosb
+	%if isdos	; \r\n
+		lodsw
+		stosw
+	%else
+		lodsb
+		stosb
+	%endif
 
 	pop	edx
 %endif
@@ -221,6 +254,7 @@ doloop	REGS
 
 		;; clobbers: eax, ebx, ecx
 		lodsd
+		taint	eax
 		mov	ebx, eax
 
 		%if FAKEHEX
@@ -237,17 +271,41 @@ doloop	REGS
 
 	taint eax, ebx, ecx, edx
 	%if NEWLINE
-	stos	0x0a
+		reg_nl
 	%endif
 endloop
 
 %if NEWLINE > 0 && NEWLINE < 3
-stosb
+	;reg_nl
 %endif
 
-realesp	sc_arg2
-write	2, x, TOTAL
-;puts	x, TOTAL
+%if isdos
+	%if 1
+		mov	al, '$'
+		taint8	eax
+		stosb
+		mov	dx, sp
+		mov	ah, 0x9
+		taint16	eax
+		int	21h
+	%else
+		mov	ah, 0xE
+		mov	bx, 0
+		mov	cx, TOTAL
+		mov	si, sp
+
+		taint16	eax
+		taint16	ebx
+		taint16	ecx
+		taint16	esi
+		.print:
+			lodsb
+			int	10h
+			loop	.print
+	%endif
+%else
+	write	2, esp, TOTAL
+%endif
 
 ; partial memory cleanup +6 bytes
 ; popf/popa/ret not cleand up (40 bytes)
@@ -268,13 +326,17 @@ write	2, x, TOTAL
 	;puts	esp, TOTAL
 	add	esp, edx
 %else
-	add	esp, edx
+	%if isdos
+		sub	sp, -TOTAL
+	%else
+		add	esp, edx
+	%endif
 %endif
 %if SEPARATE_STACK && IP
 	pop	eax
 %endif
-popf
-popa
+popfd
+popad
 %if SEPARATE_STACK
 	; popa does NOT restore esp, so we have to do it manually
 	; jump over the fake EIP. no pop/pop because we would either
@@ -289,11 +351,19 @@ rtaint ;popa destroys all our assumptions
 
 %if DEBUG
 
-%define REG_OPT		1
-%define REG_ASSERT	0
-;%define reg_stack	1
-;%define reg_keepflags	0
-%define zero_seg	0
+%if isdos
+	%assign REG_SIMPLE	0
+	%assign REG_OPT		1
+	%assign REG_SEARCH	1
+	%assign	ENABLE_LEA	1
+	%assign	USELEA		0
+	%assign reg_stack	0
+	%assign REG_ASSERT	0
+%else
+	%define REG_OPT		1
+	%define REG_ASSERT	0
+%endif
+%define zero_seg		0
 
 %if ZEROES
 regdump_zeroes:
