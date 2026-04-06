@@ -767,7 +767,7 @@ rtaint
 		dbg 0, %1, %2: lea search disp
 		%assign rsave rsave+2		;3 bytes
 		lea	%1, [lea_dbase + lea_disp]
-	%elif !ENABLE_LEA && reg_notesp && sint32 < 128 && sint32 > -129
+	%elif USELEA && !ENABLE_LEA && reg_notesp && sint32 < 128 && sint32 > -129
 		%assign rsave rsave+2
 		lea	%1, [%1+%2]		;3 bytes
 	%elif reg_var && sint32 < 0 && sint32 >= -256 && !reg_keepflags && reg_inc
@@ -804,7 +804,7 @@ rtaint
 		dbg 4, %1: BLUBB
 		inc	reg_high
 		mov	reg_low, %2 - 256	;4 bytes
-	%elif !reg_notesp && sint32 < 128 && sint32 > -129
+	%elif USELEA && !reg_notesp && sint32 < 128 && sint32 > -129
 		%assign rsave rsave+1
 		lea	%1, [%1+%2]		;4 bytes
 	%elif reg_var && uint32 % 16777216 == 0
@@ -933,7 +933,7 @@ rtaint
 		push	%2
 		;%fatal uggg oggg __?BITS?__
 		pop	embiggen(%1)	; 3 bytes
-	%elif !ENABLE_LEA && reg_search_zero != 0 && reg_notesp && sint32 < 128 && sint32 > -129
+	%elif USELEA && !ENABLE_LEA && reg_search_zero != 0 && reg_notesp && sint32 < 128 && sint32 > -129
 		rget	reg_search_zero
 		dbg 4, %1: FROM_OTHER zero
 		%assign rsave rsave+2
