@@ -607,7 +607,7 @@ rtaint
 	%elif %isidn(reg_str, "edi") 
 		%assign reg_val reg_edi_val
 	%else
-		%fatal no such register %1
+		%error no such register %1
 	%endif
 
 	%if reg_val > -1
