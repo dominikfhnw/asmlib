@@ -9,6 +9,8 @@
 	%endif
 %endmacro
 
+%unmacro elf 0-1
+%defalias elf elf2
 %ifenv %!DEBUG
 	;%warning DEBUG ON
 	%defstr DEBUG %!DEBUG
@@ -75,7 +77,7 @@
 	%endif
 %endmacro
 
-%macro elf 0-1
+%macro elf2 arg(0-1)
 	%ifidn %1,simple
 		init
 		ELF_PHDR 1
@@ -84,7 +86,9 @@
 		;__?SECT?__
 	%elifidn %1,printf
 		init 0x3dc0b000
-		rset	eax, 0xc0
+		%if ELF_CUSTOM
+			rset	eax, 0xc0
+		%endif
 		_malloc:
 		malloc	4096
 		ELF_PHDR 1
