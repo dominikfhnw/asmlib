@@ -7,7 +7,7 @@ set -o pipefail
 : ${DUMP=-Mintel}
 : ${DISAS=1}
 : ${OUT=${0%.*}}
-: ${LDFLAGS=-Ttext-segment=0x10000 --noinhibit-exec}
+: ${LDFLAGS=-Ttext-segment=0x10000 --noinhibit-exec -z noseparate-code}
 : ${M1=elf32}
 : ${M2=elf_i386}
 : ${LIBRARY=0}
@@ -27,7 +27,20 @@ if [ "$LIBRARY" -ne 0 ]; then
 	FULL=1
 fi
 
-DIR=${BASH_SOURCE%/*}
+if [ "${HARDEN-0}" -ne 0 ]; then
+	LDFLAGS="-pie --noinhibit-exec -z noexecstack "
+	LDFLAGS="--static-pie --noinhibit-exec -z noexecstack -z noseparate-code -u __stack_chk_fail -u __gets_chk -z now -z ibt -z shstk -z relro"
+	LDFLAGS="-static --noinhibit-exec -z noexecstack -z noseparate-code -u __stack_chk_fail -u __gets_chk -z now -z ibt -z shstk -z relro"
+fi
+
+SCRIPT=${BASH_SOURCE-${.sh.file}}
+DIR=${SCRIPT%/*}
+
+preproc(){
+	#{ $NASM -e "$SOURCE" "$@" ||:; } 2>/dev/null > preproc.asm #| grep -Ev '^(%line|$)' | sed '/:$/s/^/\n/' > preproc.asm
+	#{ $NASM -e "$SOURCE" "$@" ||:; } 2>/dev/null | grep -Ev '^(%line|$)' > preproc.asm #| sed '/:$/s/^/\n/' > preproc.asm
+	{ $NASM -e "$SOURCE" "$@" ||:; } 2>/dev/null | grep -Ev '^(%line|$)' | sed '/:$/s/^/\n/' > preproc.asm
+}
 
 build(){
 	sed -E 's/:=/_~/' "$0" > "$0.sed"
@@ -37,20 +50,23 @@ build(){
 		FULLBIN="$OUT.full"
 		rm -f $OUT $OUT.o $FULLBIN
 		$NASM -f "$M1" -o $OUT.o "$SOURCE" "$@" 2>&1 | filter
-		{ $NASM -e "$SOURCE" "$@" ||:; } 2>/dev/null | grep -Ev '^(%line|$)' | sed '/:$/s/^/\n/' > preproc.asm
+		preproc
 		if [ "$LIBRARY" -eq 0 ]; then
-			ld $LDFLAGS -m "$M2" -z noseparate-code $OUT.o -o $OUT
+			ld $LDFLAGS -m "$M2" $OUT.o -o $OUT
 			cp $OUT $FULLBIN
 			ls -l $FULLBIN
-			sstrip3 $OUT >/dev/null
+			if [ "${HARDEN-0}" -ne 0 ]; then
+				strip -K __stack_chk_fail -K __gets_chk "$OUT"
+			else
+				sstrip3 $OUT >/dev/null
+			fi
 		else
 			OUT="$OUT.o"
 		fi
 	else
 		rm -f $OUT
 		$NASM -f bin -o $OUT "$SOURCE" "$@" 2>&1 | filter
-
-		{ $NASM -e "$SOURCE" "$@" ||:; } 2>/dev/null | grep -Ev '^(%line|$)' | sed '/:$/s/^/\n/' > preproc.asm
+		preproc
 	fi
 }
 
