@@ -2,9 +2,11 @@
 %define LINCOM 0
 %endif
 
+%if !DOS
 %ifndef X32
 BITS 32
 %define X32 0
+%endif
 %endif
 
 %ifndef DYN
@@ -56,7 +58,9 @@ EXTERN _start
 		_phdr:
 		dd	1
 		_off:
-		%if EOFF != 0
+		%if EOFF < 0
+			dd	-(EOFF), $$	; vaddr
+		%elif EOFF != 0
 			dd	EOFF, $$ + EOFF	; vaddr
 		%else
 			dd	EOFF, $$	; vaddr
