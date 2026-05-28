@@ -7,11 +7,14 @@
 %endif
 
 %ifndef	ENABLE_LEA
-%define	ENABLE_LEA 0
+%assign	ENABLE_LEA 0
 %endif
 %assign lea_scale 0
 %assign lea_disp 0
 %assign LEA_PERPLEXITY 0
+%ifndef	USELEA
+%assign	USELEA 1
+%endif
 ; Optimization levels:
 ; Old:
 ; REG_SIMPLE: always use MOV
