@@ -1316,12 +1316,7 @@ rtaint
 %endmacro
 
 %imacro push0 arg(0)
-	findzero
-	%ifnidn reg_zero,""
-		push	%tok(reg_zero)
-	%else
-		push	0
-	%endif
+	rpush 0
 %endmacro
 
 %imacro rpush 1
