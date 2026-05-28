@@ -203,6 +203,7 @@
 
 %imacro assert 2-4 0.nolist
 
+%if !DOS
 	%strcat assert_string %str(__FILE__) ":" %str(__LINE__) " " %str(%1) %4
 	;%strcat assert_string %str(__LINE__) " " %str(%1) %4 `\n`
 	%strlen assert_strlen assert_string
@@ -210,6 +211,7 @@
 	[section .rodata]
 	%%assert_rodata: db assert_string
 	__?SECT?__
+%endif
 
 ;; XXX NO MACROS OF ANY KIND ALLOWED HERE! XXX
 ; this is akin to an exception handler, and it runs right in the middle
@@ -236,6 +238,7 @@
 	ret
 
 	%%fail:
+%if !DOS
 	reg
 	push	4
 	pop	eax
@@ -246,6 +249,12 @@
 	pop	edx
 	int	0x80
 	int3
+%else
+	;mov	[sp], ax
+	;pop	ax
+	reg
+	int	0x20
+%endif
 
 ;; XXX END OF NO MACRO SECTION XXX
 	__?SECT?__
@@ -357,6 +366,33 @@
 	%assign reg_esi_val -1
 	%assign reg_edi_val -1
 	%assign reg_esp_val -1
+
+	%assign reg_eax_val_low -1
+	%assign reg_ebx_val_low -1
+	%assign reg_ecx_val_low -1
+	%assign reg_edx_val_low -1
+	%assign reg_ebp_val_low -1
+	%assign reg_esi_val_low -1
+	%assign reg_edi_val_low -1
+	%assign reg_esp_val_low -1
+
+	%assign reg_eax_val_high -1
+	%assign reg_ebx_val_high -1
+	%assign reg_ecx_val_high -1
+	%assign reg_edx_val_high -1
+	%assign reg_ebp_val_high -1
+	%assign reg_esi_val_high -1
+	%assign reg_edi_val_high -1
+	%assign reg_esp_val_high -1
+
+	%assign reg_eax_val_16 -1
+	%assign reg_ebx_val_16 -1
+	%assign reg_ecx_val_16 -1
+	%assign reg_edx_val_16 -1
+	%assign reg_ebp_val_16 -1
+	%assign reg_esi_val_16 -1
+	%assign reg_edi_val_16 -1
+	%assign reg_esp_val_16 -1
 %endmacro
 
 %macro reg_mark 0
@@ -471,25 +507,18 @@ rtaint
 		dbg 2, SAVE value destroyed: reg_val, %1 == %2
 	%endif
 
-	%if %isidn(reg_str, "eax")
-		%assign reg_eax_val %2
-	%elif %isidn(reg_str, "ebx") 
-		%assign reg_ebx_val %2
-	%elif %isidn(reg_str, "ecx") 
-		%assign reg_ecx_val %2
-	%elif %isidn(reg_str, "edx") 
-		%assign reg_edx_val %2
-	%elif %isidn(reg_str, "esp") 
-		%assign reg_esp_val %2
-	%elif %isidn(reg_str, "ebp") 
-		%assign reg_ebp_val %2
-	%elif %isidn(reg_str, "esi") 
-		%assign reg_esi_val %2
-	%elif %isidn(reg_str, "edi") 
-		%assign reg_edi_val %2
+	%if %2 > -1
+		%assign reg_new_low  (%2 & 0xFF)
+		%assign reg_new_high (%2 & 0xFF00)
+		%assign reg_new_16   (%2 & 0xFFFF)
 	%else
-		%error no such register "%1"
+		%assign reg_new_low  -1
+		%assign reg_new_high -1
+		%assign reg_new_16   -1
 	%endif
+
+	__rset_raw reg_str, %2, reg_new_low, reg_new_high, reg_new_16
+
 	%if REG_OPT
 		; XXX check value directly when we assert it
 		reg_assert %1, %eval(%2), " S"
@@ -497,9 +526,55 @@ rtaint
 	;rdump
 %endmacro
 
-%macro reg_push 0
+%macro __rset_raw 5.nolist
+	%if %isidn(%1, "eax")
+		%assign reg_eax_val		%2
+		%assign reg_eax_val_low		%3
+		%assign reg_eax_val_high	%4
+		%assign reg_eax_val_16		%5
+	%elif %isidn(%1, "ebx")
+		%assign reg_ebx_val		%2
+		%assign reg_ebx_val_low		%3
+		%assign reg_ebx_val_high	%4
+		%assign reg_ebx_val_16		%5
+	%elif %isidn(%1, "ecx")
+		%assign reg_ecx_val		%2
+		%assign reg_ecx_val_low		%3
+		%assign reg_ecx_val_high	%4
+		%assign reg_ecx_val_16		%5
+	%elif %isidn(%1, "edx")
+		%assign reg_edx_val		%2
+		%assign reg_edx_val_low		%3
+		%assign reg_edx_val_high	%4
+		%assign reg_edx_val_16		%5
+	%elif %isidn(%1, "esi")
+		%assign reg_esi_val		%2
+		%assign reg_esi_val_low		%3
+		%assign reg_esi_val_high	%4
+		%assign reg_esi_val_16		%5
+	%elif %isidn(%1, "edi")
+		%assign reg_edi_val		%2
+		%assign reg_edi_val_low		%3
+		%assign reg_edi_val_high	%4
+		%assign reg_edi_val_16		%5
+	%elif %isidn(%1, "ebp")
+		%assign reg_ebp_val		%2
+		%assign reg_ebp_val_low		%3
+		%assign reg_ebp_val_high	%4
+		%assign reg_ebp_val_16		%5
+	%elif %isidn(%1, "esp")
+		%assign reg_esp_val		%2
+		%assign reg_esp_val_low		%3
+		%assign reg_esp_val_high	%4
+		%assign reg_esp_val_16		%5
+	%else
+		%error no such register "%1"
+	%endif
+%endmacro
+
+%macro reg_push arg(0)
 	%push	reg_context
-	rdump
+	;rdump
 
 	%assign %$old_reg_eax_val reg_eax_val 
 	%assign %$old_reg_ebx_val reg_ebx_val 
@@ -635,6 +710,11 @@ rtaint
 	%endif
 	; XXX uncomment to do excessive assertions again
 	;reg_assert %1, reg_val, " ex"
+
+	%define reg_vprefix   %strcat("reg_",%1,"_val_")
+	%assign reg_val_high %tok(%strcat(reg_vprefix,"high"))
+	%assign reg_val_low  %tok(%strcat(reg_vprefix,"low"))
+	%assign reg_val_16   %tok(%strcat(reg_vprefix,"16"))
 %else
 	%assign	reg_val -1
 	%assign	reg_defined 0
@@ -678,6 +758,26 @@ rtaint
 	%endif
 %endmacro
 
+; register is strictly less than its previous value
+; handy for loops where a value gets smaller through dec, div or similar
+%macro taintlt arg(1)
+	rget_maybe	%1
+	%if reg_defined && reg_val == 0
+		rset	%1, -1
+		;%else
+			;rset	%1, reg_val - 1
+		;%endif
+	%elif reg_8bit
+		rset	%1, -2
+	%elif reg_16bit
+		rset	%1, -3
+	%elif reg_val < -1000
+		rset	%1, reg_val - 10
+	%else
+		rset	%1, -1
+	%endif
+%endmacro
+
 ; check if valid register name, generate 8b/16b register names
 %imacro regparse 1
 	%defstr reg_str %1
@@ -712,10 +812,150 @@ rtaint
 	%endif
 %endmacro
 
+%macro regparse_small 1
+	%defstr reg_str %1
+	%if %strlen(reg_str) != 2
+		%error invalid reg for regparse_small: reg_str
+	%endif
+
+	%substr reg_id   reg_str 1,1
+	%substr reg_size reg_str 2,1
+
+	%if %isidn(reg_size,'x') || %isidn(reg_size,'l') || %isidn(reg_size,'h')
+		%assign reg_var 1
+		%strcat reg_low  reg_id "l"
+		%strcat reg_high reg_id "h"
+
+		%deftok reg_low  reg_low
+		%deftok reg_high reg_high
+		%define reg_final "x"
+	%else
+		%assign reg_var 0
+		%define reg_low  INVALID
+		%define reg_high INVALID
+
+		%xdefine reg_final reg_size
+		%define	reg_size 'x'
+	%endif
+
+	;%strcat reg_leg  reg_id reg_final
+	;%deftok reg_leg  reg_leg
+	%deftok reg_leg  %strcat(reg_id,reg_final)
+	%deftok reg_full %strcat('e',reg_leg)
+
+	dbg 0, PARSESMAL0 size reg_size
+	%if %isidn(reg_size,'l')
+		%define reg_type low
+	%elif %isidn(reg_size,'h')
+		%define reg_type high
+	%else
+		%define reg_type 16
+	%endif
+	dbg 0, PARSESMALL type reg_type
+%endmacro
+
+%macro rset_small arg(2)
+	regparse_small %1
+	rget_maybe reg_full
+%endmacro
+
+%macro set2 arg(2)
+	regparse_small %1
+	%if %isid(%2) || 0
+		%ifidn %1,%2
+			; nothing
+		%else
+			mov	%1, %2
+			; XXX track values
+			taint16	reg_full
+		%endif
+	%else
+	%endif
+%endmacro
+
+%macro set_small arg(2)
+	regparse_small %1
+	%if %isid(%2) || 0
+		%ifidn %1,%2
+			; nothing
+		%else
+			mov	%1, %2
+			; XXX track values
+			taint16	reg_full
+		%endif
+	%else
+	%xdefine set_type reg_type
+	rget_maybe reg_full
+	dbg 0, PREV val reg_val	hi	reg_val_high	 lo	reg_val_low	leg	reg_val_16
+	dbg 0, RR val %2 type set_type
+
+	%if reg_val >= 0
+		%assign	reg_val_high16		(reg_val & 0xffff0000)
+	%elif reg_val == -3
+		%assign	reg_val_high16		0
+	%elif reg_val == -2
+		%assign	reg_val_high16		0
+		%assign	reg_val_high		0
+	%else
+		%assign	reg_val_high16		-1
+		; unk
+	%endif
+
+	%if %isidn(set_type,low)
+		dbg 0, low
+		%assign reg_new_low	%2
+		%assign reg_new_high	reg_val_high
+		%assign reg_new_16	(reg_val_high<<8 + reg_new_low)
+		%assign reg_old		reg_val_low
+		%assign reg_new		reg_new_low
+	%elif %isidn(set_type,high)
+		dbg 0, high
+		%assign reg_new_low	reg_val_low
+		%assign reg_new_high	%2
+		%assign reg_new_16	(reg_new_high<<8 + reg_val_low)
+		%assign reg_old		reg_val_high
+		%assign reg_new		reg_new_high
+	%elif %isidn(set_type,16)
+		dbg 0, reg16
+		%assign reg_new_16	%2
+		%assign reg_new_low	(reg_new_16 & 0xff)
+		%assign reg_new_high	(reg_new_16 & 0xff00)>>8
+		%assign reg_old		reg_val_16
+		%assign reg_new		reg_new_16
+	%else
+		%error unknown reg type set_type
+	%endif
+
+	%if reg_val_high16 >= 0
+		%assign	reg_new_val		(reg_val_high16 | reg_new_16)
+	%else
+		%assign	reg_new_val		reg_val
+	%endif
+	dbg 0, AFTR val reg_new_val hi reg_new_high lo reg_new_low leg reg_new_16
+	;rset_small %1, %2
+	;rget_maybe reg_full
+	;regparse_small %1
+	dbg 0, smallset mov %1, %2:   reg_old -> reg_new
+	%if reg_old != reg_new
+		%if 0 && %isidn(set_type,16) && %2 < 256 && reg_val_high == 0
+			mov	reg_low, %2
+		%else
+			mov	%1, %2
+		%endif
+	%else
+		dbg 0, smallset same value, skipping mov
+	%endif
+	;dbg 0, VAR reg_var FULL reg_full LOW reg_low HIGH reg_high LEG reg_leg
+	__rset_raw %str(reg_full), reg_new_val, reg_new_low, reg_new_high, reg_new_16
+	%endif
+%endmacro
+
 ; parse 32b integer to unsigned/signed variants
 %imacro int32 1
+
 	%if %1 < 0
 		%assign uint32 (0x100000000 + %1)
+		;%assign uint32 (~%1)
 	%else
 		%assign uint32 (+%1 % 0xFFFFFFFF)
 	%endif
@@ -1055,6 +1295,8 @@ rtaint
 	%elifidn %2,$$
 		mov	%1, %2	; 5 bytes
 		taint	%1
+	%elif %strlen(%1) == 2
+		set_small %1, %2
 	%elifnum %2
 		__set_num %1, %eval(%2)
 	%elifstr %2
