@@ -36,10 +36,12 @@
 ;  A   C   D   B   S   P   s   d   f
 ;hlt
 
-%xdefine isdos	%isdef(DOS) && DOS
+%ifndef DOS
+%assign DOS 0
+%endif
 
 %macro reg_nl 0
-	%if isdos
+	%if DOS
 		mov	al, 0x0d
 		stosb
 		mov	al, 0x0a
@@ -62,7 +64,7 @@
 %endif
 
 %assign NMUL 1
-%if isdos
+%if DOS
 	%assign NMUL 2
 %endif
 %assign REGS (9+IP+STACK)
@@ -111,7 +113,7 @@ call	.begin
 	; the "always 0" reserved registers have been set to X,
 	; as that slightly increases the compression rate of this code
 	db "CrPXAXZSTIDO"
-	%if isdos
+	%if DOS
 		db 13
 	%endif
 	db 10
@@ -144,7 +146,7 @@ call	.begin
 	%endif
 	%endif
 .begin:
-%if isdos
+%if DOS
 	xor	esi, esi
 	pop	si
 %else
@@ -172,7 +174,7 @@ pop	ebx
 %endif
 
 rdump
-%if isdos
+%if DOS
 	add	sp, -TOTAL
 %else
 	alloca	TOTAL
@@ -210,7 +212,7 @@ cld
 	endloop
 
 	; nl
-	%if isdos	; \r\n
+	%if DOS		; \r\n
 		lodsw
 		stosw
 	%else
@@ -279,7 +281,7 @@ endloop
 	;reg_nl
 %endif
 
-%if isdos
+%if DOS
 	%if 1
 		mov	al, '$'
 		taint8	eax
@@ -326,7 +328,7 @@ endloop
 	;puts	esp, TOTAL
 	add	esp, edx
 %else
-	%if isdos
+	%if DOS
 		sub	sp, -TOTAL
 	%else
 		add	esp, edx
@@ -351,7 +353,7 @@ rtaint ;popa destroys all our assumptions
 
 %if DEBUG
 
-%if isdos
+%if DOS
 	%assign REG_SIMPLE	0
 	%assign REG_OPT		1
 	%assign REG_SEARCH	1
