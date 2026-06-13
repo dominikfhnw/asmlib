@@ -9,6 +9,10 @@
 	%endif
 %endmacro
 
+%ifndef DOS
+	%assign DOS 0
+%endif
+
 %unmacro elf 0-1
 %defalias elf elf2
 %ifenv %!DEBUG
