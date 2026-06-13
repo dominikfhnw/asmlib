@@ -116,6 +116,8 @@ _start:
 %endmacro
 %else
 %warning ELF format
+[section .text align=1]
+
 %unmacro ELF 0-1
 %macro ELF 0-1
 _start:

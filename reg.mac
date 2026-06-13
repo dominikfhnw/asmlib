@@ -6,12 +6,14 @@
 %define	REG_ASSERT 0
 %endif
 
+; the new lea feature
 %ifndef	ENABLE_LEA
 %assign	ENABLE_LEA 0
 %endif
 %assign lea_scale 0
 %assign lea_disp 0
-%assign LEA_PERPLEXITY 0
+%assign LEA_PERPLEXITY 1
+; lea instructions in general
 %ifndef	USELEA
 %assign	USELEA 1
 %endif
@@ -656,7 +658,7 @@ rtaint
 	rget esp
 %endmacro
 
-%macro rget arg(1)
+%macro rget 1.nolist
 	rget_maybe %1
 	%if REG_OPT
 		reg_assert %1, reg_val, " G"
@@ -1112,6 +1114,22 @@ rtaint
 		dbg 6, NO MATCH
 	%endif
 	dbg 6, KEEPFLAGS2B
+
+	checkconstant reg_val
+	checkconstant uint32
+	checkconstant reg_defined
+	checkconstant reg_delta
+	checkconstant reg_keepflags
+	checkconstant reg_inc
+	;checkconstant %2
+	checkconstant reg_var
+	checkconstant reg_8bit
+	checkconstant ENABLE_LEA
+	checkconstant lea_scale
+	checkconstant lea_disp
+	checkconstant sint32
+	checkconstant USELEA
+
 	%if reg_val == uint32
 		%assign rsave rsave+5
 		dbg 4, same value, skipping
@@ -1137,9 +1155,6 @@ rtaint
 		rget	reg_search_match
 		%assign rsave rsave+3
 		dbg 4, %1: FROM_OTHER
-		%ifndef USELEA
-		%define USELEA 1
-		%endif
 		%if USELEA && !%isidn(reg_search_match,esp) && !%isidn(reg_search_match,ebp)
 			lea	%1, [reg_search_match]	; 2 bytes
 		%else
@@ -1289,7 +1304,9 @@ rtaint
 	%elifidn %2,x
 		; do nothing
 	%elif REG_SIMPLE
-		%if %1 != %2
+		%ifidn %1,%2
+			; nothing
+		%else
 			mov	%1, %2
 		%endif
 	%elifidn %2,$
@@ -1314,6 +1331,8 @@ rtaint
 			rmov	%1, %2
 		%endif
 	%else
+		%warning TOK %2
+		token_info %2
 		%error XXXXXXXXXXXXXXXXX ASSUMING CRITICAL EXPRESSION
 	%endif
 %endmacro
