@@ -300,6 +300,17 @@
 	%endif
 %endmacro
 
+%imacro sleep_ms arg(1)
+	push	%1*1000*1000
+	push	0
+	syscall	SYS_nanosleep, esp
+	%if stack_cleanup
+		pop	sc_arg1
+		pop	sc_arg1
+		rset	sc_arg1, %1*1000*1000
+	%endif
+%endmacro
+
 %imacro fork arg(0)
 	syscall SYS_fork
 %endmacro
